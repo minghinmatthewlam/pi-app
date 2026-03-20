@@ -7,11 +7,11 @@
   --surface-muted: #f1f3f7;
   --line: #dde1ea;
   --line-strong: #d2d7e2;
-  --text: #3f4963;
-  --text-strong: #242a3b;
-  --muted: #7f879b;
-  --muted-strong: #616a82;
-  --muted-soft: #9aa1b3;
+  --text: #39435b;
+  --text-strong: #1f2638;
+  --muted: #747d93;
+  --muted-strong: #556077;
+  --muted-soft: #8f97aa;
   --muted-subtle: #a3a9b8;
   --muted-icon: #8a92a8;
   --muted-path: #a0a7b8;
@@ -44,6 +44,9 @@ body {
   font-family: var(--font-ui);
   color: var(--text-strong);
   background: var(--window);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button,
@@ -65,8 +68,8 @@ svg {
 
 .loading-card {
   width: min(720px, 100%);
-  padding: 28px;
-  border-radius: 18px;
+  padding: 24px;
+  border-radius: 14px;
   border: 1px solid var(--line);
   background: var(--surface);
 }
@@ -88,9 +91,9 @@ svg {
 .session-header h1,
 .empty-panel h1 {
   margin: 0;
-  font-size: clamp(28px, 3vw, 40px);
+  font-size: clamp(34px, 3vw, 50px);
   letter-spacing: -0.04em;
-  line-height: 1.06;
+  line-height: 0.98;
 }
 
 .loading-card p,
@@ -100,7 +103,8 @@ svg {
 .message p {
   margin: 0;
   color: var(--muted);
-  line-height: 1.55;
+  line-height: 1.5;
+  font-size: 15px;
 }
 
 .loading-card p {
@@ -108,15 +112,15 @@ svg {
 }
 
 .empty-state {
-  padding: 18px;
-  border-radius: 14px;
+  padding: 16px;
+  border-radius: 12px;
   border: 1px dashed var(--line-strong);
   background: rgba(255, 255, 255, 0.45);
 }
 
 .empty-state h2 {
   margin: 0 0 8px;
-  font-size: 19px;
+  font-size: 17px;
   letter-spacing: -0.03em;
 }
 
@@ -126,12 +130,12 @@ svg {
   justify-content: center;
   gap: 8px;
   min-height: 36px;
-  padding: 0 12px;
-  border-radius: 11px;
+  padding: 0 13px;
+  border-radius: 9px;
   background: var(--surface);
   border: 1px solid transparent;
   color: var(--text-strong);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   transition:
     background 140ms ease,
@@ -175,8 +179,8 @@ svg {
   font-size: 12px;
   font-weight: 500;
   color: var(--muted-strong);
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid #d9deea;
 }
 
 .meta-chip--path {

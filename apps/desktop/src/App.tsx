@@ -306,8 +306,6 @@ export default function App() {
                       <span className="workspace-row__name">{workspace.name}</span>
                       <span className="workspace-row__time">{formatRelativeTime(workspace.lastOpenedAt)}</span>
                     </button>
-                    <div className="workspace-row__path">{workspace.path}</div>
-
                     <div className="session-list">
                       {workspace.sessions.map((session) => {
                         const active = workspace.id === selectedWorkspace?.id && session.id === selectedSession?.id;
@@ -407,23 +405,25 @@ export default function App() {
 
               {snapshot.lastError ? <div className="error-banner">{snapshot.lastError}</div> : null}
 
-              <div className="timeline" data-testid="transcript">
-                {selectedSession.transcript.length === 0 ? (
-                  <article className="message message--assistant">
-                    <div className="message__role">assistant</div>
-                    <p>Start with a prompt to continue this thread.</p>
-                  </article>
-                ) : (
-                  selectedSession.transcript.map((message) => (
-                    <article className={`message message--${message.role}`} key={message.id}>
-                      <div className="message__meta">
-                        <span className="message__role">{message.role}</span>
-                        <span className="message__time">{formatRelativeTime(message.createdAt)}</span>
-                      </div>
-                      <p>{message.text}</p>
+              <div className="timeline-pane">
+                <div className="timeline" data-testid="transcript">
+                  {selectedSession.transcript.length === 0 ? (
+                    <article className="message message--assistant">
+                      <div className="message__role">assistant</div>
+                      <p>Start with a prompt to continue this thread.</p>
                     </article>
-                  ))
-                )}
+                  ) : (
+                    selectedSession.transcript.map((message) => (
+                      <article className={`message message--${message.role}`} key={message.id}>
+                        <div className="message__meta">
+                          <span className="message__role">{message.role}</span>
+                          <span className="message__time">{formatRelativeTime(message.createdAt)}</span>
+                        </div>
+                        <p>{message.text}</p>
+                      </article>
+                    ))
+                  )}
+                </div>
               </div>
             </section>
 
