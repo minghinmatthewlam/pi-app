@@ -1,4 +1,5 @@
-import type { ComposerImageAttachment, CreateSessionInput, DesktopAppState, WorkspaceSessionTarget } from "./desktop-state";
+import type { RuntimeSettingsSnapshot } from "@pi-app/session-driver/runtime-types";
+import type { AppView, ComposerImageAttachment, CreateSessionInput, DesktopAppState, NotificationPreferences, WorkspaceSessionTarget } from "./desktop-state";
 
 export const desktopIpc = {
   stateRequest: "pi-app:state-request",
@@ -9,10 +10,21 @@ export const desktopIpc = {
   renameWorkspace: "pi-app:rename-workspace",
   removeWorkspace: "pi-app:remove-workspace",
   openWorkspaceInFinder: "pi-app:open-workspace-in-finder",
+  openSkillInFinder: "pi-app:open-skill-in-finder",
   syncCurrentWorkspace: "pi-app:sync-current-workspace",
   selectSession: "pi-app:select-session",
   createSession: "pi-app:create-session",
   cancelCurrentRun: "pi-app:cancel-current-run",
+  setActiveView: "pi-app:set-active-view",
+  refreshRuntime: "pi-app:refresh-runtime",
+  setDefaultModel: "pi-app:set-default-model",
+  setDefaultThinkingLevel: "pi-app:set-default-thinking-level",
+  loginProvider: "pi-app:login-provider",
+  logoutProvider: "pi-app:logout-provider",
+  setEnableSkillCommands: "pi-app:set-enable-skill-commands",
+  setScopedModelPatterns: "pi-app:set-scoped-model-patterns",
+  setSkillEnabled: "pi-app:set-skill-enabled",
+  setNotificationPreferences: "pi-app:set-notification-preferences",
   pickComposerImages: "pi-app:pick-composer-images",
   addComposerImages: "pi-app:add-composer-images",
   removeComposerImage: "pi-app:remove-composer-image",
@@ -37,10 +49,24 @@ export interface PiDesktopApi {
   renameWorkspace(workspaceId: string, displayName: string): Promise<DesktopAppState>;
   removeWorkspace(workspaceId: string): Promise<DesktopAppState>;
   openWorkspaceInFinder(workspaceId: string): Promise<void>;
+  openSkillInFinder(workspaceId: string, filePath: string): Promise<void>;
   syncCurrentWorkspace(): Promise<DesktopAppState>;
   selectSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   createSession(input: CreateSessionInput): Promise<DesktopAppState>;
   cancelCurrentRun(): Promise<DesktopAppState>;
+  setActiveView(view: AppView): Promise<DesktopAppState>;
+  refreshRuntime(workspaceId?: string): Promise<DesktopAppState>;
+  setDefaultModel(workspaceId: string, provider: string, modelId: string): Promise<DesktopAppState>;
+  setDefaultThinkingLevel(
+    workspaceId: string,
+    thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"],
+  ): Promise<DesktopAppState>;
+  loginProvider(workspaceId: string, providerId: string): Promise<DesktopAppState>;
+  logoutProvider(workspaceId: string, providerId: string): Promise<DesktopAppState>;
+  setEnableSkillCommands(workspaceId: string, enabled: boolean): Promise<DesktopAppState>;
+  setScopedModelPatterns(workspaceId: string, patterns: readonly string[]): Promise<DesktopAppState>;
+  setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState>;
+  setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState>;
   pickComposerImages(): Promise<DesktopAppState>;
   addComposerImages(attachments: readonly ComposerImageAttachment[]): Promise<DesktopAppState>;
   removeComposerImage(attachmentId: string): Promise<DesktopAppState>;

@@ -1,19 +1,25 @@
 import { useEffect, useRef, useState, type Dispatch, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type SetStateAction } from "react";
+import type { RuntimeSnapshot } from "@pi-app/session-driver/runtime-types";
 import {
   getSelectedSession,
   getSelectedWorkspace,
+  type AppView,
   type DesktopAppState,
   type WorkspaceRecord,
 } from "./desktop-state";
-import { FolderIcon, PlusIcon, SettingsIcon } from "./icons";
+import { FolderIcon, PlusIcon, SettingsIcon, SkillIcon } from "./icons";
 import { ComposerPanel } from "./composer-panel";
 import {
-  SLASH_COMMANDS,
-  isExactSlashCommand,
+  buildModelOptions,
+  findExactSlashCommand,
+  findSlashSuggestions,
+  flattenSlashSections,
   slashOptionsForCommand,
   type ComposerSlashCommand,
   type ComposerSlashOption,
 } from "./composer-commands";
+import { SkillsView } from "./skills-view";
+import { SettingsView } from "./settings-view";
 import { TimelineItem } from "./timeline-item";
 
 function useDesktopAppState() {
@@ -130,6 +136,7 @@ export default function App() {
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashOptionIndex, setSlashOptionIndex] = useState(0);
   const [slashOptionCommand, setSlashOptionCommand] = useState<ComposerSlashCommand | undefined>();
+  const [slashOptionProviderId, setSlashOptionProviderId] = useState<string | undefined>();
   const [slashMenuSuppressedDraft, setSlashMenuSuppressedDraft] = useState("");
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
   const [workspaceRenameId, setWorkspaceRenameId] = useState<string | null>(null);
@@ -146,18 +153,18 @@ export default function App() {
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
+  const selectedRuntime = selectedWorkspace ? snapshot?.runtimeByWorkspace[selectedWorkspace.id] : undefined;
   const composerAttachments = snapshot?.composerAttachments ?? [];
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = `${selectedWorkspace?.id ?? ""}:${selectedSession?.id ?? ""}`;
   const persistedComposerDraft = snapshot?.composerDraft ?? "";
   const slashQuery = composerDraft.trimStart();
-  const slashSuggestions =
+  const slashSections =
     slashQuery.startsWith("/")
-      ? SLASH_COMMANDS.filter(({ command, title }) =>
-          [command, title].some((value) => value.toLowerCase().includes(slashQuery.toLowerCase())),
-        )
+      ? findSlashSuggestions(slashQuery, selectedRuntime)
       : [];
-  const exactSlashCommand = SLASH_COMMANDS.find((command) => isExactSlashCommand(slashQuery, command));
+  const slashSuggestions = flattenSlashSections(slashSections);
+  const exactSlashCommand = findExactSlashCommand(slashQuery, selectedRuntime);
   const activeSlashOptionCommand =
     slashOptionCommand ?? (exactSlashCommand?.submitMode === "pick-option" ? exactSlashCommand : undefined);
   const showSlashMenu =
@@ -168,7 +175,10 @@ export default function App() {
     slashQuery !== slashMenuSuppressedDraft &&
     slashSuggestions.length > 0;
   const selectedSlashCommand = showSlashMenu ? slashSuggestions[slashIndex % slashSuggestions.length] : undefined;
-  const slashOptions = slashOptionsForCommand(activeSlashOptionCommand);
+  const slashOptions =
+    activeSlashOptionCommand?.kind === "model" && slashOptionProviderId
+      ? buildModelOptions(selectedRuntime, slashOptionProviderId)
+      : slashOptionsForCommand(activeSlashOptionCommand, selectedRuntime);
   const showSlashOptionMenu =
     selectedSession?.status !== "running" &&
     Boolean(activeSlashOptionCommand) &&
@@ -196,12 +206,14 @@ export default function App() {
   useEffect(() => {
     if (!slashQuery.startsWith("/")) {
       setSlashOptionCommand(undefined);
+      setSlashOptionProviderId(undefined);
       setSlashOptionIndex(0);
       return;
     }
 
     if (slashOptionCommand && slashQuery.trim().length > slashOptionCommand.command.length) {
       setSlashOptionCommand(undefined);
+      setSlashOptionProviderId(undefined);
       setSlashOptionIndex(0);
     }
   }, [slashOptionCommand, slashQuery]);
@@ -211,6 +223,7 @@ export default function App() {
     lastTranscriptMarkerRef.current = "";
     pinnedToBottomRef.current = true;
     setSlashOptionCommand(undefined);
+    setSlashOptionProviderId(undefined);
     setSlashOptionIndex(0);
     setSlashMenuSuppressedDraft("");
   }, [selectedSessionKey]);
@@ -311,6 +324,10 @@ export default function App() {
     );
   }
 
+  const setActiveView = (view: AppView) => {
+    void updateSnapshot(api, setSnapshot, () => api.setActiveView(view));
+  };
+
   const submitComposerDraft = () => {
     if (!selectedSession) {
       return;
@@ -341,6 +358,78 @@ export default function App() {
 
   const handleRemoveImage = (attachmentId: string) => {
     void updateSnapshot(api, setSnapshot, () => api.removeComposerImage(attachmentId));
+  };
+
+  const handleRefreshRuntime = () => {
+    if (!selectedWorkspace) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.refreshRuntime(selectedWorkspace.id));
+  };
+
+  const handleSetDefaultModel = (provider: string, modelId: string) => {
+    if (!selectedWorkspace) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.setDefaultModel(selectedWorkspace.id, provider, modelId));
+  };
+
+  const handleSetThinkingLevel = (thinkingLevel: RuntimeSnapshot["settings"]["defaultThinkingLevel"]) => {
+    if (!selectedWorkspace) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.setDefaultThinkingLevel(selectedWorkspace.id, thinkingLevel));
+  };
+
+  const handleToggleSkillCommands = (enabled: boolean) => {
+    if (!selectedWorkspace) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.setEnableSkillCommands(selectedWorkspace.id, enabled));
+  };
+
+  const handleSetScopedModelPatterns = (patterns: readonly string[]) => {
+    if (!selectedWorkspace) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.setScopedModelPatterns(selectedWorkspace.id, patterns));
+  };
+
+  const handleLoginProvider = (providerId: string) => {
+    if (!selectedWorkspace) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.loginProvider(selectedWorkspace.id, providerId));
+  };
+
+  const handleLogoutProvider = (providerId: string) => {
+    if (!selectedWorkspace) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.logoutProvider(selectedWorkspace.id, providerId));
+  };
+
+  const handleToggleSkill = (filePath: string, enabled: boolean) => {
+    if (!selectedWorkspace) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.setSkillEnabled(selectedWorkspace.id, filePath, enabled));
+  };
+
+  const handleOpenSkillFolder = (filePath: string) => {
+    if (!selectedWorkspace) {
+      return;
+    }
+    void api.openSkillInFinder(selectedWorkspace.id, filePath);
+  };
+
+  const handleTrySkill = (command: string) => {
+    setActiveView("threads");
+    fillComposerFromSlash(command);
+  };
+
+  const handleSetNotificationPreferences = (preferences: Partial<DesktopAppState["notificationPreferences"]>) => {
+    void updateSnapshot(api, setSnapshot, () => api.setNotificationPreferences(preferences));
   };
 
   const handleWorkspaceRenameStart = (workspace: WorkspaceRecord) => {
@@ -408,6 +497,7 @@ export default function App() {
 
   const closeSlashOptionMenu = () => {
     setSlashOptionCommand(undefined);
+    setSlashOptionProviderId(undefined);
     setSlashOptionIndex(0);
   };
 
@@ -425,6 +515,7 @@ export default function App() {
   const openSlashOptionMenu = (command: ComposerSlashCommand) => {
     setSlashMenuSuppressedDraft("");
     setSlashOptionCommand(command);
+    setSlashOptionProviderId(undefined);
     setSlashOptionIndex(0);
     setComposerDraft(command.command);
     focusComposer();
@@ -437,6 +528,13 @@ export default function App() {
     const submitMode = command.submitMode ?? "prefill";
     if (submitMode === "pick-option") {
       openSlashOptionMenu(command);
+      return;
+    }
+
+    if (command.kind === "settings" || command.kind === "scoped-models") {
+      resetSlashUi();
+      setComposerDraft("");
+      setActiveView("settings");
       return;
     }
 
@@ -460,7 +558,44 @@ export default function App() {
   };
 
   const applySlashOptionSelection = (option: ComposerSlashOption) => {
-    if (!activeSlashOptionCommand) {
+    if (!activeSlashOptionCommand || !selectedWorkspace) {
+      return;
+    }
+
+    if (activeSlashOptionCommand.kind === "model" && !slashOptionProviderId) {
+      setSlashOptionProviderId(option.value);
+      setSlashOptionIndex(0);
+      setComposerDraft(`${activeSlashOptionCommand.command} ${option.value}`);
+      focusComposer();
+      return;
+    }
+
+    if (activeSlashOptionCommand.kind === "model" && slashOptionProviderId) {
+      resetSlashUi();
+      setComposerDraft("");
+      void updateSnapshot(api, setSnapshot, () =>
+        api.submitComposer(`/model ${slashOptionProviderId} ${option.value}`),
+      ).then((state) => {
+        setComposerDraft(state.composerDraft);
+      });
+      return;
+    }
+
+    if (activeSlashOptionCommand.kind === "login") {
+      resetSlashUi();
+      setComposerDraft("");
+      void updateSnapshot(api, setSnapshot, () => api.loginProvider(selectedWorkspace.id, option.value)).then((state) => {
+        setComposerDraft(state.composerDraft);
+      });
+      return;
+    }
+
+    if (activeSlashOptionCommand.kind === "logout") {
+      resetSlashUi();
+      setComposerDraft("");
+      void updateSnapshot(api, setSnapshot, () => api.logoutProvider(selectedWorkspace.id, option.value)).then((state) => {
+        setComposerDraft(state.composerDraft);
+      });
       return;
     }
 
@@ -566,6 +701,33 @@ export default function App() {
             <PlusIcon />
             <span>New thread</span>
           </button>
+
+          <div className="sidebar__nav">
+            <button
+              className={`sidebar__nav-item ${snapshot.activeView === "threads" ? "sidebar__nav-item--active" : ""}`}
+              type="button"
+              onClick={() => setActiveView("threads")}
+            >
+              <FolderIcon />
+              <span>Threads</span>
+            </button>
+            <button
+              className={`sidebar__nav-item ${snapshot.activeView === "skills" ? "sidebar__nav-item--active" : ""}`}
+              type="button"
+              onClick={() => setActiveView("skills")}
+            >
+              <SkillIcon />
+              <span>Skills</span>
+            </button>
+            <button
+              className={`sidebar__nav-item ${snapshot.activeView === "settings" ? "sidebar__nav-item--active" : ""}`}
+              type="button"
+              onClick={() => setActiveView("settings")}
+            >
+              <SettingsIcon />
+              <span>Settings</span>
+            </button>
+          </div>
         </div>
 
         <div className="sidebar__section">
@@ -734,15 +896,6 @@ export default function App() {
             </div>
           )}
         </div>
-
-        <div className="sidebar__footer">
-          <div className="sidebar__settings">
-            <span className="sidebar__settings-mark">
-              <SettingsIcon />
-            </span>
-            <span>Settings</span>
-          </div>
-        </div>
       </aside>
 
       <main className="main">
@@ -751,10 +904,17 @@ export default function App() {
             <span className="topbar__workspace">
               {selectedWorkspace ? selectedWorkspace.name : "Open a folder to begin"}
             </span>
-            {selectedWorkspace && selectedSession ? (
+            {selectedWorkspace && snapshot.activeView === "threads" && selectedSession ? (
               <>
                 <span className="topbar__separator">/</span>
                 <span className="topbar__session">{selectedSession.title}</span>
+              </>
+            ) : selectedWorkspace && snapshot.activeView !== "threads" ? (
+              <>
+                <span className="topbar__separator">/</span>
+                <span className="topbar__session">
+                  {snapshot.activeView === "skills" ? "Skills" : "Settings"}
+                </span>
               </>
             ) : null}
           </div>
@@ -773,7 +933,36 @@ export default function App() {
           </div>
         </header>
 
-        {selectedWorkspace && selectedSession ? (
+        {snapshot.activeView === "skills" ? (
+          <SkillsView
+            workspace={selectedWorkspace}
+            runtime={selectedRuntime}
+            onOpenSkillFolder={handleOpenSkillFolder}
+            onRefresh={handleRefreshRuntime}
+            onToggleSkill={handleToggleSkill}
+            onTrySkill={(skill) =>
+              handleTrySkill(
+                skill.filePath
+                  ? `/${skill.slashCommand} `
+                  : "Create a new skill for this workspace and explain which files you will add.",
+              )
+            }
+          />
+        ) : snapshot.activeView === "settings" ? (
+          <SettingsView
+            workspace={selectedWorkspace}
+            runtime={selectedRuntime}
+            notificationPreferences={snapshot.notificationPreferences}
+            onLoginProvider={handleLoginProvider}
+            onLogoutProvider={handleLogoutProvider}
+            onRefresh={handleRefreshRuntime}
+            onSetDefaultModel={handleSetDefaultModel}
+            onSetNotificationPreferences={handleSetNotificationPreferences}
+            onSetScopedModelPatterns={handleSetScopedModelPatterns}
+            onSetThinkingLevel={handleSetThinkingLevel}
+            onToggleSkillCommands={handleToggleSkillCommands}
+          />
+        ) : selectedWorkspace && selectedSession ? (
           <>
             <section className="canvas">
               <div className="conversation">
@@ -830,7 +1019,7 @@ export default function App() {
               showSlashOptionMenu={showSlashOptionMenu}
               showSlashMenu={showSlashMenu}
               slashOptions={slashOptions}
-              slashSuggestions={slashSuggestions}
+              slashSections={slashSections}
             />
           </>
         ) : selectedWorkspace ? (

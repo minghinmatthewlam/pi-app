@@ -35,6 +35,37 @@
   padding-top: 54px;
 }
 
+.sidebar__nav {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.sidebar__nav-item {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted-strong);
+  font-size: 14px;
+  font-weight: 560;
+  border: 1px solid transparent;
+}
+
+.sidebar__nav-item svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sidebar__nav-item--active {
+  background: #eef1f6;
+  border-color: #e1e5ee;
+  color: var(--text-strong);
+}
+
 .sidebar__new {
   -webkit-app-region: no-drag;
   width: 100%;

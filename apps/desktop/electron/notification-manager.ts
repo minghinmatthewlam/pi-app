@@ -74,6 +74,17 @@ export class NotificationManager {
       return false;
     }
 
+    const preferences = this.latestState?.notificationPreferences;
+    if (event.type === "runCompleted" && preferences && !preferences.backgroundCompletion) {
+      return false;
+    }
+    if (event.type === "runFailed" && preferences && !preferences.backgroundFailure) {
+      return false;
+    }
+    if (event.type === "hostUiRequest" && preferences && !preferences.attentionNeeded) {
+      return false;
+    }
+
     const window = this.getWindow();
     if (!window || window.isDestroyed()) {
       return true;

@@ -118,9 +118,43 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.selectSession, (_event, target: WorkspaceSessionTarget) =>
     store.selectSession(target),
   );
+  ipcMain.handle(desktopIpc.setActiveView, (_event, activeView) => store.setActiveView(activeView));
+  ipcMain.handle(desktopIpc.refreshRuntime, (_event, workspaceId?: string) => store.refreshRuntime(workspaceId));
+  ipcMain.handle(desktopIpc.setDefaultModel, (_event, workspaceId: string, provider: string, modelId: string) =>
+    store.setDefaultModel(workspaceId, provider, modelId),
+  );
+  ipcMain.handle(
+    desktopIpc.setDefaultThinkingLevel,
+    (_event, workspaceId: string, thinkingLevel) => store.setDefaultThinkingLevel(workspaceId, thinkingLevel),
+  );
+  ipcMain.handle(desktopIpc.loginProvider, (_event, workspaceId: string, providerId: string) =>
+    store.loginProvider(workspaceId, providerId, createRuntimeLoginCallbacks()),
+  );
+  ipcMain.handle(desktopIpc.logoutProvider, (_event, workspaceId: string, providerId: string) =>
+    store.logoutProvider(workspaceId, providerId),
+  );
+  ipcMain.handle(desktopIpc.setEnableSkillCommands, (_event, workspaceId: string, enabled: boolean) =>
+    store.setEnableSkillCommands(workspaceId, enabled),
+  );
+  ipcMain.handle(desktopIpc.setScopedModelPatterns, (_event, workspaceId: string, patterns: readonly string[]) =>
+    store.setScopedModelPatterns(workspaceId, patterns),
+  );
+  ipcMain.handle(desktopIpc.setSkillEnabled, (_event, workspaceId: string, filePath: string, enabled: boolean) =>
+    store.setSkillEnabled(workspaceId, filePath, enabled),
+  );
+  ipcMain.handle(desktopIpc.setNotificationPreferences, (_event, preferences) =>
+    store.setNotificationPreferences(preferences),
+  );
   ipcMain.handle(desktopIpc.createSession, (_event, input: CreateSessionInput) =>
     store.createSession(input),
   );
+  ipcMain.handle(desktopIpc.openSkillInFinder, async (_event, workspaceId: string, filePath: string) => {
+    const resolved = store.getSkillFilePath(workspaceId, filePath);
+    if (!resolved) {
+      throw new Error(`Unknown skill: ${filePath}`);
+    }
+    await shell.openPath(path.dirname(resolved));
+  });
   ipcMain.handle(desktopIpc.cancelCurrentRun, () => store.cancelCurrentRun());
   ipcMain.handle(desktopIpc.pickComposerImages, async () => {
     const result = await dialog.showOpenDialog({
@@ -216,4 +250,44 @@ function mimeTypeForPath(filePath: string): string {
     return supported.mimeType;
   }
   return "application/octet-stream";
+}
+
+function createRuntimeLoginCallbacks() {
+  return {
+    onAuth: async ({ url, instructions }: { readonly url: string; readonly instructions?: string }) => {
+      await shell.openExternal(url);
+      const window = mainWindow;
+      if (!window || window.isDestroyed()) {
+        return;
+      }
+      await dialog.showMessageBox(window, {
+        type: "info",
+        title: "Continue sign in",
+        message: instructions ?? "Continue sign in with your browser.",
+        detail: url,
+        buttons: ["OK"],
+        defaultId: 0,
+      });
+    },
+    onPrompt: async ({ message, placeholder }: { readonly message: string; readonly placeholder?: string }) =>
+      promptForText(message, placeholder),
+    onManualCodeInput: async () => promptForText("Paste the authorization code or callback URL", ""),
+  };
+}
+
+async function promptForText(message: string, placeholder = ""): Promise<string> {
+  const window = mainWindow;
+  if (!window || window.isDestroyed()) {
+    throw new Error("Main window is not available for login.");
+  }
+  window.show();
+  window.focus();
+  const result = await window.webContents.executeJavaScript(
+    `window.prompt(${JSON.stringify(message)}, ${JSON.stringify(placeholder)})`,
+    true,
+  );
+  if (typeof result !== "string" || result.trim().length === 0) {
+    throw new Error("Login cancelled.");
+  }
+  return result.trim();
 }

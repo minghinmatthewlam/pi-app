@@ -1,7 +1,16 @@
 import type { SessionConfig } from "@pi-app/session-driver";
+import type { RuntimeSnapshot } from "@pi-app/session-driver/runtime-types";
 export type SessionStatus = "idle" | "running" | "failed";
 export type { SessionRole, TranscriptMessage } from "./timeline-types";
 import type { TranscriptMessage } from "./timeline-types";
+
+export type AppView = "threads" | "skills" | "settings";
+
+export interface NotificationPreferences {
+  readonly backgroundCompletion: boolean;
+  readonly backgroundFailure: boolean;
+  readonly attentionNeeded: boolean;
+}
 
 export interface ComposerImageAttachment {
   readonly id: string;
@@ -33,8 +42,11 @@ export interface DesktopAppState {
   readonly workspaces: readonly WorkspaceRecord[];
   readonly selectedWorkspaceId: string;
   readonly selectedSessionId: string;
+  readonly activeView: AppView;
   readonly composerDraft: string;
   readonly composerAttachments: readonly ComposerImageAttachment[];
+  readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
+  readonly notificationPreferences: NotificationPreferences;
   readonly revision: number;
   readonly lastError?: string;
 }
@@ -54,8 +66,15 @@ export function createEmptyDesktopAppState(): DesktopAppState {
     workspaces: [],
     selectedWorkspaceId: "",
     selectedSessionId: "",
+    activeView: "threads",
     composerDraft: "",
     composerAttachments: [],
+    runtimeByWorkspace: {},
+    notificationPreferences: {
+      backgroundCompletion: true,
+      backgroundFailure: true,
+      attentionNeeded: true,
+    },
     revision: 0,
   };
 }

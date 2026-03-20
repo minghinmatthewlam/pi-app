@@ -1,7 +1,7 @@
 import { type Dispatch, type KeyboardEvent, type RefObject, type SetStateAction } from "react";
 import type { ComposerImageAttachment, SessionRecord } from "./desktop-state";
-import { PlusIcon } from "./icons";
-import type { ComposerSlashCommand, ComposerSlashOption } from "./composer-commands";
+import { ModelIcon, PlusIcon, ReasoningIcon, SkillIcon, SparkIcon, StatusIcon } from "./icons";
+import type { ComposerSlashCommand, ComposerSlashCommandSection, ComposerSlashOption } from "./composer-commands";
 
 interface ComposerPanelProps {
   readonly selectedSession: SessionRecord;
@@ -10,7 +10,7 @@ interface ComposerPanelProps {
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
   readonly runningLabel: string;
   readonly attachments: readonly ComposerImageAttachment[];
-  readonly slashSuggestions: readonly ComposerSlashCommand[];
+  readonly slashSections: readonly ComposerSlashCommandSection[];
   readonly slashOptions: readonly ComposerSlashOption[];
   readonly selectedSlashCommand?: ComposerSlashCommand;
   readonly selectedSlashOption?: ComposerSlashOption;
@@ -31,7 +31,7 @@ export function ComposerPanel({
   composerRef,
   runningLabel,
   attachments,
-  slashSuggestions,
+  slashSections,
   slashOptions,
   selectedSlashCommand,
   selectedSlashOption,
@@ -49,17 +49,25 @@ export function ComposerPanel({
       <div className="conversation conversation--composer">
         {showSlashMenu ? (
           <div className="slash-menu" data-testid="slash-menu">
-            {slashSuggestions.map((command) => (
-              <button
-                className={`slash-menu__item ${selectedSlashCommand?.command === command.command ? "slash-menu__item--active" : ""}`}
-                key={command.command}
-                type="button"
-                onClick={() => onSelectSlashCommand(command)}
-              >
-                <span className="slash-menu__title">{command.title}</span>
-                <span className="slash-menu__command">{command.command}</span>
-                <span className="slash-menu__description">{command.description}</span>
-              </button>
+            {slashSections.map((section) => (
+              <div className="slash-menu__section" key={section.id}>
+                {section.title ? <div className="slash-menu__section-title">{section.title}</div> : null}
+                {section.items.map((command) => (
+                  <button
+                    className={`slash-menu__item ${selectedSlashCommand?.command === command.command ? "slash-menu__item--active" : ""}`}
+                    key={`${section.id}:${command.command}`}
+                    type="button"
+                    onClick={() => onSelectSlashCommand(command)}
+                  >
+                    <span className="slash-menu__icon" aria-hidden="true">
+                      <SlashCommandIcon command={command} />
+                    </span>
+                    <span className="slash-menu__title">{command.title}</span>
+                    <span className="slash-menu__command">{command.command}</span>
+                    <span className="slash-menu__description">{command.description}</span>
+                  </button>
+                ))}
+              </div>
             ))}
           </div>
         ) : null}
@@ -148,4 +156,19 @@ export function ComposerPanel({
       </div>
     </footer>
   );
+}
+
+function SlashCommandIcon({ command }: { readonly command: ComposerSlashCommand }) {
+  switch (command.kind) {
+    case "model":
+      return <ModelIcon />;
+    case "thinking":
+      return <ReasoningIcon />;
+    case "status":
+      return <StatusIcon />;
+    case "skill":
+      return <SkillIcon />;
+    default:
+      return <SparkIcon />;
+  }
 }

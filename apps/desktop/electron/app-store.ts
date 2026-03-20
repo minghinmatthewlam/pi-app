@@ -2,12 +2,15 @@ import { join } from "node:path";
 import { PiSdkDriver, type PiSdkDriverConfig } from "@pi-app/pi-sdk-driver";
 import type { SessionCatalogEntry } from "@pi-app/catalogs";
 import type { SessionConfig, SessionDriverEvent, SessionRef, WorkspaceRef } from "@pi-app/session-driver";
+import type { RuntimeLoginCallbacks, RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-app/session-driver/runtime-types";
 import {
+  type AppView,
   cloneDesktopAppState,
   createEmptyDesktopAppState,
   type ComposerImageAttachment,
   type CreateSessionInput,
   type DesktopAppState,
+  type NotificationPreferences,
   type TranscriptMessage,
   type WorkspaceSessionTarget,
 } from "../src/desktop-state";
@@ -81,6 +84,7 @@ export class DesktopAppStore {
   private readonly composerDraftsBySession = new Map<string, string>();
   private readonly composerAttachmentsBySession = new Map<string, ComposerImageAttachment[]>();
   private readonly sessionConfigBySession = new Map<string, SessionConfig>();
+  private readonly runtimeByWorkspace = new Map<string, RuntimeSnapshot>();
   private readonly sessionErrorsBySession = new Map<string, string>();
   private readonly sessionSubscriptions = new Map<string, () => void>();
   private readonly activeAssistantMessageBySession = new Map<string, string>();
@@ -170,6 +174,10 @@ export class DesktopAppStore {
     return this.state.workspaces.find((workspace) => workspace.id === workspaceId)?.path;
   }
 
+  getSkillFilePath(workspaceId: string, filePath: string): string | undefined {
+    return this.runtimeByWorkspace.get(workspaceId)?.skills.find((skill) => skill.filePath === filePath)?.filePath;
+  }
+
   async renameWorkspace(workspaceId: string, displayName: string): Promise<DesktopAppState> {
     await this.initialize();
     const nextName = displayName.trim();
@@ -226,6 +234,171 @@ export class DesktopAppStore {
     } catch (error) {
       return this.withError(error);
     }
+  }
+
+  async setActiveView(activeView: AppView): Promise<DesktopAppState> {
+    await this.initialize();
+    this.state = {
+      ...this.state,
+      activeView,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
+  async refreshRuntime(workspaceId?: string): Promise<DesktopAppState> {
+    await this.initialize();
+    const resolvedWorkspaceId = workspaceId || this.state.selectedWorkspaceId;
+    const workspace = this.workspaceRefFromState(resolvedWorkspaceId);
+    if (!workspace) {
+      return this.emit();
+    }
+
+    try {
+      const snapshot = await this.driver.refreshRuntime(workspace);
+      this.runtimeByWorkspace.set(workspace.workspaceId, snapshot);
+      return this.refreshState({ clearLastError: true });
+    } catch (error) {
+      return this.withError(error);
+    }
+  }
+
+  async setDefaultModel(workspaceId: string, provider: string, modelId: string): Promise<DesktopAppState> {
+    await this.initialize();
+    const workspace = this.workspaceRefFromState(workspaceId);
+    if (!workspace) {
+      return this.withError(`Unknown workspace: ${workspaceId}`);
+    }
+
+    try {
+      const snapshot = await this.driver.setDefaultModel(workspace, { provider, modelId });
+      this.runtimeByWorkspace.set(workspaceId, snapshot);
+      return this.refreshState({ clearLastError: true });
+    } catch (error) {
+      return this.withError(error);
+    }
+  }
+
+  async setDefaultThinkingLevel(
+    workspaceId: string,
+    thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"],
+  ): Promise<DesktopAppState> {
+    await this.initialize();
+    const workspace = this.workspaceRefFromState(workspaceId);
+    if (!workspace) {
+      return this.withError(`Unknown workspace: ${workspaceId}`);
+    }
+
+    try {
+      const snapshot = await this.driver.setDefaultThinkingLevel(workspace, thinkingLevel);
+      this.runtimeByWorkspace.set(workspaceId, snapshot);
+      return this.refreshState({ clearLastError: true });
+    } catch (error) {
+      return this.withError(error);
+    }
+  }
+
+  async loginProvider(
+    workspaceId: string,
+    providerId: string,
+    callbacks: RuntimeLoginCallbacks,
+  ): Promise<DesktopAppState> {
+    await this.initialize();
+    const workspace = this.workspaceRefFromState(workspaceId);
+    if (!workspace) {
+      return this.withError(`Unknown workspace: ${workspaceId}`);
+    }
+
+    try {
+      const snapshot = await this.driver.login(workspace, providerId, callbacks);
+      this.runtimeByWorkspace.set(workspaceId, snapshot);
+      return this.refreshState({ clearLastError: true });
+    } catch (error) {
+      return this.withError(error);
+    }
+  }
+
+  async logoutProvider(workspaceId: string, providerId: string): Promise<DesktopAppState> {
+    await this.initialize();
+    const workspace = this.workspaceRefFromState(workspaceId);
+    if (!workspace) {
+      return this.withError(`Unknown workspace: ${workspaceId}`);
+    }
+
+    try {
+      const snapshot = await this.driver.logout(workspace, providerId);
+      this.runtimeByWorkspace.set(workspaceId, snapshot);
+      return this.refreshState({ clearLastError: true });
+    } catch (error) {
+      return this.withError(error);
+    }
+  }
+
+  async setEnableSkillCommands(workspaceId: string, enabled: boolean): Promise<DesktopAppState> {
+    await this.initialize();
+    const workspace = this.workspaceRefFromState(workspaceId);
+    if (!workspace) {
+      return this.withError(`Unknown workspace: ${workspaceId}`);
+    }
+
+    try {
+      const snapshot = await this.driver.setEnableSkillCommands(workspace, enabled);
+      this.runtimeByWorkspace.set(workspaceId, snapshot);
+      return this.refreshState({ clearLastError: true });
+    } catch (error) {
+      return this.withError(error);
+    }
+  }
+
+  async setScopedModelPatterns(workspaceId: string, patterns: readonly string[]): Promise<DesktopAppState> {
+    await this.initialize();
+    const workspace = this.workspaceRefFromState(workspaceId);
+    if (!workspace) {
+      return this.withError(`Unknown workspace: ${workspaceId}`);
+    }
+
+    try {
+      const snapshot = await this.driver.setScopedModelPatterns(workspace, patterns);
+      this.runtimeByWorkspace.set(workspaceId, snapshot);
+      return this.refreshState({ clearLastError: true });
+    } catch (error) {
+      return this.withError(error);
+    }
+  }
+
+  async setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState> {
+    await this.initialize();
+    const workspace = this.workspaceRefFromState(workspaceId);
+    if (!workspace) {
+      return this.withError(`Unknown workspace: ${workspaceId}`);
+    }
+
+    try {
+      const snapshot = await this.driver.setSkillEnabled(workspace, filePath, enabled);
+      this.runtimeByWorkspace.set(workspaceId, snapshot);
+      return this.refreshState({ clearLastError: true });
+    } catch (error) {
+      return this.withError(error);
+    }
+  }
+
+  async setNotificationPreferences(
+    preferences: Partial<NotificationPreferences>,
+  ): Promise<DesktopAppState> {
+    await this.initialize();
+    this.state = {
+      ...this.state,
+      notificationPreferences: {
+        ...this.state.notificationPreferences,
+        ...preferences,
+      },
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
   }
 
   async createSession(input: CreateSessionInput): Promise<DesktopAppState> {
@@ -335,7 +508,10 @@ export class DesktopAppStore {
     }
 
     if (text.startsWith("/")) {
-      return this.runComposerCommand(sessionRef, text);
+      const handled = await this.runComposerCommand(sessionRef, text);
+      if (handled) {
+        return handled;
+      }
     }
 
     const key = sessionKey(sessionRef);
@@ -403,6 +579,14 @@ export class DesktopAppStore {
   private async initializeInternal(): Promise<void> {
     try {
       const persisted = await this.readUiState();
+      this.state = {
+        ...this.state,
+        activeView: persisted.activeView ?? this.state.activeView,
+        notificationPreferences: {
+          ...this.state.notificationPreferences,
+          ...persisted.notificationPreferences,
+        },
+      };
     await this.migrateLegacyPersistence(persisted);
       this.composerDraftsBySession.clear();
       for (const [key, draft] of Object.entries(persisted.composerDraftsBySession ?? {})) {
@@ -486,6 +670,12 @@ export class DesktopAppStore {
       this.runningSinceBySession,
       this.sessionConfigBySession,
     );
+    const liveWorkspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+    for (const workspaceId of this.runtimeByWorkspace.keys()) {
+      if (!liveWorkspaceIds.has(workspaceId)) {
+        this.runtimeByWorkspace.delete(workspaceId);
+      }
+    }
     const selectedWorkspaceId = resolveSelectedWorkspaceId(
       options.selectedWorkspaceId ?? this.state.selectedWorkspaceId,
       workspaces,
@@ -512,11 +702,16 @@ export class DesktopAppStore {
       );
     }
 
+    if (selectedWorkspaceId) {
+      await this.ensureRuntimeLoaded(selectedWorkspaceId);
+    }
+
     this.state = {
       ...this.state,
       workspaces,
       selectedWorkspaceId,
       selectedSessionId,
+      runtimeByWorkspace: this.serializeRuntimeState(),
       composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId, options.composerDraft),
       composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
       lastError: this.resolveSelectedSessionError(selectedWorkspaceId, selectedSessionId, options.clearLastError),
@@ -624,6 +819,20 @@ export class DesktopAppStore {
     }
   }
 
+  private async ensureRuntimeLoaded(workspaceId: string): Promise<void> {
+    if (this.runtimeByWorkspace.has(workspaceId)) {
+      return;
+    }
+
+    const workspace = this.workspaceRefFromState(workspaceId);
+    if (!workspace) {
+      return;
+    }
+
+    const snapshot = await this.driver.getRuntimeSnapshot(workspace);
+    this.runtimeByWorkspace.set(workspaceId, snapshot);
+  }
+
   private async ensureSessionSubscribed(sessionRef: SessionRef): Promise<void> {
     const key = sessionKey(sessionRef);
     if (this.sessionSubscriptions.has(key)) {
@@ -709,6 +918,10 @@ export class DesktopAppStore {
     };
   }
 
+  private serializeRuntimeState(): Record<string, RuntimeSnapshot> {
+    return Object.fromEntries(this.runtimeByWorkspace.entries());
+  }
+
   private selectedSessionRef(): SessionRef | undefined {
     if (!this.state.selectedWorkspaceId || !this.state.selectedSessionId) {
       return undefined;
@@ -732,8 +945,10 @@ export class DesktopAppStore {
     const payload: PersistedUiState = {
       selectedWorkspaceId: this.state.selectedWorkspaceId || undefined,
       selectedSessionId: this.state.selectedSessionId || undefined,
+      activeView: this.state.activeView,
       composerDraft: this.state.composerDraft || undefined,
       composerDraftsBySession: Object.fromEntries(this.composerDraftsBySession.entries()),
+      notificationPreferences: this.state.notificationPreferences,
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);
@@ -858,10 +1073,10 @@ export class DesktopAppStore {
     return this.sessionErrorsBySession.get(key);
   }
 
-  private async runComposerCommand(sessionRef: SessionRef, commandText: string): Promise<DesktopAppState> {
+  private async runComposerCommand(sessionRef: SessionRef, commandText: string): Promise<DesktopAppState | undefined> {
     const parsed = parseComposerCommand(commandText);
     if (!parsed) {
-      return this.withError(`Unknown slash command: ${commandText.split(/\s+/, 1)[0] ?? commandText}`);
+      return undefined;
     }
 
     const key = sessionKey(sessionRef);

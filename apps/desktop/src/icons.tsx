@@ -62,3 +62,70 @@ export function SettingsIcon() {
     </Icon>
   );
 }
+
+export function ModelIcon() {
+  return (
+    <Icon>
+      <path
+        d="M10 3.3 15.8 6.4v7.2L10 16.7 4.2 13.6V6.4L10 3.3Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.4"
+      />
+      <path d="M4.5 6.65 10 9.7l5.5-3.05M10 9.8v6.5" stroke="currentColor" strokeWidth="1.2" />
+    </Icon>
+  );
+}
+
+export function ReasoningIcon() {
+  return (
+    <Icon>
+      <path
+        d="M7.2 6.1a2.6 2.6 0 1 1 2.6 2.6v1.05M12.35 6.35a2.2 2.2 0 1 1-2.2-2.2"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.35"
+      />
+      <path d="M7.2 13.6h5.6M8.2 16h3.6" stroke="currentColor" strokeLinecap="round" strokeWidth="1.35" />
+    </Icon>
+  );
+}
+
+export function StatusIcon() {
+  return (
+    <Icon>
+      <path d="M4.3 10h11.4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" />
+      <path d="M10 4.3v11.4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" />
+      <circle cx="10" cy="10" r="6.6" stroke="currentColor" strokeWidth="1.3" />
+    </Icon>
+  );
+}
+
+export function SkillIcon() {
+  return (
+    <Icon>
+      <path
+        d="M10 2.8 15.8 6v8L10 17.2 4.2 14V6L10 2.8Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.35"
+      />
+      <path d="M10 2.8V17.2M4.2 6 10 9.2 15.8 6" stroke="currentColor" strokeWidth="1.2" />
+    </Icon>
+  );
+}
+
+export function RefreshIcon() {
+  return (
+    <Icon>
+      <path
+        d="M15.1 8.2A5.6 5.6 0 1 0 15 12.8M15.2 4.9v3.7h-3.7"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.45"
+      />
+    </Icon>
+  );
+}

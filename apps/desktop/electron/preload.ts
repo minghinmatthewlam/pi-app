@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { desktopIpc } from "../src/ipc";
-import type { ComposerImageAttachment, CreateSessionInput, DesktopAppState, WorkspaceSessionTarget } from "../src/desktop-state";
+import type { RuntimeSettingsSnapshot } from "@pi-app/session-driver/runtime-types";
+import type { AppView, ComposerImageAttachment, CreateSessionInput, DesktopAppState, NotificationPreferences, WorkspaceSessionTarget } from "../src/desktop-state";
 
 contextBridge.exposeInMainWorld("piApp", {
   platform: process.platform,
@@ -27,6 +28,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.removeWorkspace, workspaceId) as Promise<DesktopAppState>,
   openWorkspaceInFinder: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.openWorkspaceInFinder, workspaceId) as Promise<void>,
+  openSkillInFinder: (workspaceId: string, filePath: string) =>
+    ipcRenderer.invoke(desktopIpc.openSkillInFinder, workspaceId, filePath) as Promise<void>,
   syncCurrentWorkspace: () =>
     ipcRenderer.invoke(desktopIpc.syncCurrentWorkspace) as Promise<DesktopAppState>,
   selectSession: (target: WorkspaceSessionTarget) =>
@@ -34,6 +37,26 @@ contextBridge.exposeInMainWorld("piApp", {
   createSession: (input: CreateSessionInput) =>
     ipcRenderer.invoke(desktopIpc.createSession, input) as Promise<DesktopAppState>,
   cancelCurrentRun: () => ipcRenderer.invoke(desktopIpc.cancelCurrentRun) as Promise<DesktopAppState>,
+  setActiveView: (view: AppView) =>
+    ipcRenderer.invoke(desktopIpc.setActiveView, view) as Promise<DesktopAppState>,
+  refreshRuntime: (workspaceId?: string) =>
+    ipcRenderer.invoke(desktopIpc.refreshRuntime, workspaceId) as Promise<DesktopAppState>,
+  setDefaultModel: (workspaceId: string, provider: string, modelId: string) =>
+    ipcRenderer.invoke(desktopIpc.setDefaultModel, workspaceId, provider, modelId) as Promise<DesktopAppState>,
+  setDefaultThinkingLevel: (workspaceId: string, thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"]) =>
+    ipcRenderer.invoke(desktopIpc.setDefaultThinkingLevel, workspaceId, thinkingLevel) as Promise<DesktopAppState>,
+  loginProvider: (workspaceId: string, providerId: string) =>
+    ipcRenderer.invoke(desktopIpc.loginProvider, workspaceId, providerId) as Promise<DesktopAppState>,
+  logoutProvider: (workspaceId: string, providerId: string) =>
+    ipcRenderer.invoke(desktopIpc.logoutProvider, workspaceId, providerId) as Promise<DesktopAppState>,
+  setEnableSkillCommands: (workspaceId: string, enabled: boolean) =>
+    ipcRenderer.invoke(desktopIpc.setEnableSkillCommands, workspaceId, enabled) as Promise<DesktopAppState>,
+  setScopedModelPatterns: (workspaceId: string, patterns: readonly string[]) =>
+    ipcRenderer.invoke(desktopIpc.setScopedModelPatterns, workspaceId, patterns) as Promise<DesktopAppState>,
+  setSkillEnabled: (workspaceId: string, filePath: string, enabled: boolean) =>
+    ipcRenderer.invoke(desktopIpc.setSkillEnabled, workspaceId, filePath, enabled) as Promise<DesktopAppState>,
+  setNotificationPreferences: (preferences: Partial<NotificationPreferences>) =>
+    ipcRenderer.invoke(desktopIpc.setNotificationPreferences, preferences) as Promise<DesktopAppState>,
   pickComposerImages: () => ipcRenderer.invoke(desktopIpc.pickComposerImages) as Promise<DesktopAppState>,
   addComposerImages: (attachments: readonly ComposerImageAttachment[]) =>
     ipcRenderer.invoke(desktopIpc.addComposerImages, attachments) as Promise<DesktopAppState>,
