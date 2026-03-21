@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { SessionCatalogEntry, WorkspaceCatalogEntry } from "@pi-app/catalogs";
+import type { SessionCatalogEntry, WorkspaceCatalogEntry, WorktreeCatalogEntry } from "@pi-app/catalogs";
 import type { SessionAttachment, SessionConfig, SessionRef } from "@pi-app/session-driver";
 import type {
   ComposerImageAttachment,
   SessionRecord,
   TranscriptMessage,
+  WorktreeRecord,
   WorkspaceRecord,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
@@ -13,20 +14,85 @@ export const TRANSCRIPT_HISTORY_LIMIT = 180;
 
 export function buildWorkspaceRecords(
   workspaces: readonly WorkspaceCatalogEntry[],
+  worktrees: readonly WorktreeCatalogEntry[],
   sessions: readonly SessionCatalogEntry[],
   transcriptCache: Map<string, TranscriptMessage[]>,
   runningSinceBySession: Map<string, string>,
   sessionConfigBySession: Map<string, SessionConfig>,
 ): WorkspaceRecord[] {
-  return workspaces.map((workspace) => ({
-    id: workspace.workspaceId,
-    name: workspace.displayName,
-    path: workspace.path,
-    lastOpenedAt: workspace.lastOpenedAt,
-    sessions: sessions
-      .filter((session) => session.workspaceId === workspace.workspaceId)
-      .map((session) => buildSessionRecord(session, transcriptCache, runningSinceBySession, sessionConfigBySession)),
-  }));
+  const linkedWorktreesByPath = new Map(
+    worktrees
+      .filter((worktree) => worktree.kind === "linked")
+      .map((worktree) => [worktree.path, worktree] as const),
+  );
+
+  return workspaces.map((workspace) => {
+    const linkedWorktree = linkedWorktreesByPath.get(workspace.path);
+    const isValidLinkedWorktree =
+      linkedWorktree !== undefined && linkedWorktree.workspaceId !== workspace.workspaceId;
+
+    return {
+      id: workspace.workspaceId,
+      name: workspace.displayName,
+      path: workspace.path,
+      lastOpenedAt: workspace.lastOpenedAt,
+      kind: isValidLinkedWorktree ? "worktree" : "primary",
+      ...(isValidLinkedWorktree
+        ? {
+            rootWorkspaceId: linkedWorktree?.workspaceId,
+            branchName: linkedWorktree?.branchName,
+          }
+        : {}),
+      sessions: sessions
+        .filter((session) => session.workspaceId === workspace.workspaceId)
+        .map((session) => buildSessionRecord(session, transcriptCache, runningSinceBySession, sessionConfigBySession)),
+    };
+  });
+}
+
+export function buildWorktreeRecords(
+  workspaces: readonly WorkspaceCatalogEntry[],
+  worktrees: readonly WorktreeCatalogEntry[],
+): Record<string, readonly WorktreeRecord[]> {
+  const linkedWorkspaceIdsByPath = new Map(workspaces.map((workspace) => [workspace.path, workspace.workspaceId] as const));
+  const groups = new Map<string, WorktreeRecord[]>();
+
+  for (const worktree of worktrees) {
+    if (worktree.kind !== "linked") {
+      continue;
+    }
+    const linkedWorkspaceId = linkedWorkspaceIdsByPath.get(worktree.path);
+    if (linkedWorkspaceId === worktree.workspaceId) {
+      continue;
+    }
+    const entry: WorktreeRecord = {
+      id: worktree.worktreeId,
+      rootWorkspaceId: worktree.workspaceId,
+      linkedWorkspaceId,
+      name: worktree.displayName,
+      path: worktree.path,
+      status: worktree.status,
+      branchName: worktree.branchName,
+      updatedAt: worktree.updatedAt,
+    };
+    const existing = groups.get(worktree.workspaceId);
+    if (existing) {
+      existing.push(entry);
+    } else {
+      groups.set(worktree.workspaceId, [entry]);
+    }
+  }
+
+  for (const entries of groups.values()) {
+    entries.sort((left, right) => {
+      if (left.updatedAt !== right.updatedAt) {
+        return right.updatedAt.localeCompare(left.updatedAt);
+      }
+      return left.name.localeCompare(right.name);
+    });
+  }
+
+  return Object.fromEntries(groups.entries());
 }
 
 function buildSessionRecord(

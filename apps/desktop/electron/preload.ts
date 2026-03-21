@@ -1,7 +1,16 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { desktopIpc } from "../src/ipc";
 import type { RuntimeSettingsSnapshot } from "@pi-app/session-driver/runtime-types";
-import type { AppView, ComposerImageAttachment, CreateSessionInput, DesktopAppState, NotificationPreferences, WorkspaceSessionTarget } from "../src/desktop-state";
+import type {
+  AppView,
+  ComposerImageAttachment,
+  CreateSessionInput,
+  CreateWorktreeInput,
+  DesktopAppState,
+  NotificationPreferences,
+  RemoveWorktreeInput,
+  WorkspaceSessionTarget,
+} from "../src/desktop-state";
 
 contextBridge.exposeInMainWorld("piApp", {
   platform: process.platform,
@@ -28,6 +37,10 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.removeWorkspace, workspaceId) as Promise<DesktopAppState>,
   openWorkspaceInFinder: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.openWorkspaceInFinder, workspaceId) as Promise<void>,
+  createWorktree: (input: CreateWorktreeInput) =>
+    ipcRenderer.invoke(desktopIpc.createWorktree, input) as Promise<DesktopAppState>,
+  removeWorktree: (input: RemoveWorktreeInput) =>
+    ipcRenderer.invoke(desktopIpc.removeWorktree, input) as Promise<DesktopAppState>,
   openSkillInFinder: (workspaceId: string, filePath: string) =>
     ipcRenderer.invoke(desktopIpc.openSkillInFinder, workspaceId, filePath) as Promise<void>,
   syncCurrentWorkspace: () =>

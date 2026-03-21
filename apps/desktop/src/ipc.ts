@@ -1,5 +1,14 @@
 import type { RuntimeSettingsSnapshot } from "@pi-app/session-driver/runtime-types";
-import type { AppView, ComposerImageAttachment, CreateSessionInput, DesktopAppState, NotificationPreferences, WorkspaceSessionTarget } from "./desktop-state";
+import type {
+  AppView,
+  ComposerImageAttachment,
+  CreateSessionInput,
+  CreateWorktreeInput,
+  DesktopAppState,
+  NotificationPreferences,
+  RemoveWorktreeInput,
+  WorkspaceSessionTarget,
+} from "./desktop-state";
 
 export const desktopIpc = {
   stateRequest: "pi-app:state-request",
@@ -10,6 +19,8 @@ export const desktopIpc = {
   renameWorkspace: "pi-app:rename-workspace",
   removeWorkspace: "pi-app:remove-workspace",
   openWorkspaceInFinder: "pi-app:open-workspace-in-finder",
+  createWorktree: "pi-app:create-worktree",
+  removeWorktree: "pi-app:remove-worktree",
   openSkillInFinder: "pi-app:open-skill-in-finder",
   syncCurrentWorkspace: "pi-app:sync-current-workspace",
   selectSession: "pi-app:select-session",
@@ -49,6 +60,8 @@ export interface PiDesktopApi {
   renameWorkspace(workspaceId: string, displayName: string): Promise<DesktopAppState>;
   removeWorkspace(workspaceId: string): Promise<DesktopAppState>;
   openWorkspaceInFinder(workspaceId: string): Promise<void>;
+  createWorktree(input: CreateWorktreeInput): Promise<DesktopAppState>;
+  removeWorktree(input: RemoveWorktreeInput): Promise<DesktopAppState>;
   openSkillInFinder(workspaceId: string, filePath: string): Promise<void>;
   syncCurrentWorkspace(): Promise<DesktopAppState>;
   selectSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;

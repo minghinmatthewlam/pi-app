@@ -79,7 +79,9 @@ export class JsonCatalogStore implements SessionFileCatalogStorage {
       await this.mutateState((state) => {
         state.workspaces = state.workspaces.filter((workspace) => workspace.workspaceId !== workspaceId);
         state.sessions = state.sessions.filter((session) => session.workspaceId !== workspaceId);
-        state.worktrees = state.worktrees.filter((worktree) => worktree.workspaceId !== workspaceId);
+        state.worktrees = state.worktrees.filter(
+          (worktree) => !(worktree.workspaceId === workspaceId && worktree.kind === "primary"),
+        );
         for (const key of Object.keys(state.sessionFiles)) {
           if (key.startsWith(`${workspaceId}:`)) {
             delete state.sessionFiles[key];
@@ -126,6 +128,13 @@ export class JsonCatalogStore implements SessionFileCatalogStorage {
     ): Promise<void> => {
       await this.mutateState((state) => {
         const nextEntries = entries.map(cloneWorktreeEntry);
+        const existingEntries = state.worktrees
+          .filter((worktree) => worktree.workspaceId === workspaceId)
+          .sort(compareWorktreeEntries);
+        if (areWorktreeListsEqual(existingEntries, nextEntries)) {
+          return false;
+        }
+
         state.worktrees = [...state.worktrees.filter((worktree) => worktree.workspaceId !== workspaceId), ...nextEntries];
       });
     },
@@ -235,9 +244,11 @@ export class JsonCatalogStore implements SessionFileCatalogStorage {
     }
   }
 
-  private async mutateState(mutator: (state: CatalogFileState) => void): Promise<void> {
+  private async mutateState(mutator: (state: CatalogFileState) => void | false): Promise<void> {
     const state = await this.getState();
-    mutator(state);
+    if (mutator(state) === false) {
+      return;
+    }
     await this.persistState(state);
   }
 
@@ -316,6 +327,41 @@ function compareWorktreeEntries(left: WorktreeCatalogEntry, right: WorktreeCatal
   if (!left.pinned && right.pinned) return 1;
   if (left.updatedAt !== right.updatedAt) return right.updatedAt.localeCompare(left.updatedAt);
   return left.displayName.localeCompare(right.displayName);
+}
+
+function areWorktreeListsEqual(
+  left: readonly WorktreeCatalogEntry[],
+  right: readonly WorktreeCatalogEntry[],
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const sortedRight = [...right].sort(compareWorktreeEntries);
+  return left.every((entry, index) => areWorktreeEntriesEqual(entry, sortedRight[index]));
+}
+
+function areWorktreeEntriesEqual(
+  left: WorktreeCatalogEntry,
+  right: WorktreeCatalogEntry | undefined,
+): boolean {
+  if (!right) {
+    return false;
+  }
+
+  return (
+    left.worktreeId === right.worktreeId &&
+    left.workspaceId === right.workspaceId &&
+    left.path === right.path &&
+    left.displayName === right.displayName &&
+    left.kind === right.kind &&
+    left.status === right.status &&
+    left.branchName === right.branchName &&
+    left.headSha === right.headSha &&
+    left.pinned === right.pinned &&
+    left.createdAt === right.createdAt &&
+    left.updatedAt === right.updatedAt
+  );
 }
 
 function rankSessionStatus(status: SessionCatalogEntry["status"]): number {

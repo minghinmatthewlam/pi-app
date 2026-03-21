@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -26,6 +26,11 @@ export interface RemoveWorktreeOptions {
   readonly force?: boolean;
 }
 
+export interface GitWorkspaceInspection {
+  readonly canonicalPath: string;
+  readonly commonDir: string;
+}
+
 export class GitWorktreeManager {
   constructor(private readonly options: GitWorktreeManagerOptions) {}
 
@@ -39,6 +44,10 @@ export class GitWorktreeManager {
     const discovered = await listGitWorktrees(repoRoot, workspace, existing.worktrees);
     await this.options.catalogStorage.worktrees.replaceWorkspaceWorktrees(workspace.workspaceId, discovered);
     return { worktrees: discovered.map((entry) => ({ ...entry })) };
+  }
+
+  async inspectWorkspace(workspace: WorkspaceRef): Promise<GitWorkspaceInspection> {
+    return inspectGitWorkspace(workspace.path);
   }
 
   async createWorktree(workspace: WorkspaceRef, input: CreateWorktreeOptions): Promise<WorktreeCatalogEntry> {
@@ -58,10 +67,11 @@ export class GitWorktreeManager {
     args.push(worktreePath, input.startPoint?.trim() || "HEAD");
     await runGit(args);
 
+    const canonicalWorktreePath = await canonicalPath(worktreePath);
     const snapshot = await this.refreshWorktrees(workspace);
-    const created = snapshot.worktrees.find((entry) => entry.worktreeId === worktreePath);
+    const created = snapshot.worktrees.find((entry) => entry.worktreeId === canonicalWorktreePath);
     if (!created) {
-      throw new Error(`Worktree ${worktreePath} was created but is missing from the catalog.`);
+      throw new Error(`Worktree ${canonicalWorktreePath} was created but is missing from the catalog.`);
     }
     if (input.displayName?.trim()) {
       const next = { ...created, displayName: input.displayName.trim() };
@@ -77,10 +87,10 @@ export class GitWorktreeManager {
     options: RemoveWorktreeOptions = {},
   ): Promise<void> {
     const repoRoot = await resolveRepositoryRoot(workspace.path);
-    const resolvedId = resolve(worktreeId);
+    const resolvedId = await canonicalPath(worktreeId);
     const existing = await this.options.catalogStorage.worktrees.getWorktree(resolvedId);
-    const targetPath = existing?.path ? resolve(existing.path) : resolvedId;
-    if (existing?.kind === "primary" || targetPath === resolve(workspace.path)) {
+    const targetPath = await canonicalPath(existing?.path ? existing.path : resolvedId);
+    if (existing?.kind === "primary" || (!existing && targetPath === await canonicalPath(workspace.path))) {
       throw new Error("The primary workspace cannot be removed as a git worktree.");
     }
 
@@ -107,7 +117,20 @@ export class GitWorktreeManager {
 
 async function resolveRepositoryRoot(workspacePath: string): Promise<string> {
   const output = await runGit(["-C", workspacePath, "rev-parse", "--show-toplevel"]);
-  return resolve(output.trim());
+  return canonicalPath(output.trim());
+}
+
+async function inspectGitWorkspace(workspacePath: string): Promise<GitWorkspaceInspection> {
+  const canonicalPathValue = await canonicalPath(workspacePath);
+  const rawCommonDir = (await runGit(["-C", workspacePath, "rev-parse", "--git-common-dir"])).trim();
+  const commonDirPath = rawCommonDir.startsWith("/")
+    ? rawCommonDir
+    : resolve(canonicalPathValue, rawCommonDir);
+
+  return {
+    canonicalPath: canonicalPathValue,
+    commonDir: await canonicalPath(commonDirPath),
+  };
 }
 
 async function listGitWorktrees(
@@ -120,14 +143,15 @@ async function listGitWorktrees(
   const discovered = new Map<string, WorktreeCatalogEntry>();
 
   for (const block of output.split(/\n\s*\n/)) {
-    const entry = parseWorktreeBlock(block, workspace, existing);
+    const entry = await parseWorktreeBlock(block, workspace, existing);
     if (entry) {
       discovered.set(entry.worktreeId, mergeWorktreeEntry(entry, existing.get(entry.worktreeId)));
     }
   }
 
-  if (!discovered.has(resolve(workspace.path))) {
-    const primaryPath = resolve(workspace.path);
+  const workspacePath = await canonicalPath(workspace.path);
+  if (!discovered.has(workspacePath)) {
+    const primaryPath = workspacePath;
     discovered.set(
       primaryPath,
       mergeWorktreeEntry(
@@ -149,11 +173,11 @@ async function listGitWorktrees(
   return [...discovered.values()].sort(compareWorktreeEntries);
 }
 
-function parseWorktreeBlock(
+async function parseWorktreeBlock(
   block: string,
   workspace: WorkspaceRef,
   existing: ReadonlyMap<string, WorktreeCatalogEntry>,
-): WorktreeCatalogEntry | undefined {
+): Promise<WorktreeCatalogEntry | undefined> {
   const lines = block
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -167,8 +191,9 @@ function parseWorktreeBlock(
     return undefined;
   }
 
-  const path = resolve(worktreeLine.slice("worktree ".length).trim());
-  const kind: WorktreeCatalogEntry["kind"] = path === resolve(workspace.path) ? "primary" : "linked";
+  const path = await canonicalPath(worktreeLine.slice("worktree ".length).trim());
+  const workspacePath = await canonicalPath(workspace.path);
+  const kind: WorktreeCatalogEntry["kind"] = path === workspacePath ? "primary" : "linked";
   const headLine = lines.find((line) => line.startsWith("HEAD "));
   const branchLine = lines.find((line) => line.startsWith("branch "));
   const status: WorktreeCatalogEntry["status"] = lines.includes("prunable") ? "missing" : "ready";
@@ -194,12 +219,26 @@ function mergeWorktreeEntry(
   nextEntry: WorktreeCatalogEntry,
   existingEntry: WorktreeCatalogEntry | undefined,
 ): WorktreeCatalogEntry {
+  const updatedAt =
+    existingEntry && hasSameWorktreeIdentity(existingEntry, nextEntry) ? existingEntry.updatedAt : nextEntry.updatedAt;
   return {
     ...nextEntry,
     displayName: existingEntry?.displayName?.trim() || nextEntry.displayName,
     createdAt: existingEntry?.createdAt ?? nextEntry.createdAt,
+    updatedAt,
     pinned: existingEntry?.pinned ?? nextEntry.pinned,
   };
+}
+
+function hasSameWorktreeIdentity(left: WorktreeCatalogEntry, right: WorktreeCatalogEntry): boolean {
+  return (
+    left.workspaceId === right.workspaceId &&
+    left.path === right.path &&
+    left.kind === right.kind &&
+    left.status === right.status &&
+    left.branchName === right.branchName &&
+    left.headSha === right.headSha
+  );
 }
 
 function compareWorktreeEntries(left: WorktreeCatalogEntry, right: WorktreeCatalogEntry): number {
@@ -236,4 +275,13 @@ async function runGit(args: readonly string[]): Promise<string> {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+async function canonicalPath(pathValue: string): Promise<string> {
+  const resolved = resolve(pathValue);
+  try {
+    return await realpath(resolved);
+  } catch {
+    return resolved;
+  }
 }

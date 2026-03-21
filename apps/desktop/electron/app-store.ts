@@ -1,6 +1,7 @@
-import { join } from "node:path";
-import { PiSdkDriver, type PiSdkDriverConfig } from "@pi-app/pi-sdk-driver";
-import type { SessionCatalogEntry } from "@pi-app/catalogs";
+import { randomUUID } from "node:crypto";
+import { basename, dirname, join } from "node:path";
+import { JsonCatalogStore, PiSdkDriver, type PiSdkDriverConfig } from "@pi-app/pi-sdk-driver";
+import type { SessionCatalogEntry, WorktreeCatalogEntry } from "@pi-app/catalogs";
 import type { SessionConfig, SessionDriverEvent, SessionRef, WorkspaceRef } from "@pi-app/session-driver";
 import type { RuntimeLoginCallbacks, RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-app/session-driver/runtime-types";
 import {
@@ -9,8 +10,10 @@ import {
   createEmptyDesktopAppState,
   type ComposerImageAttachment,
   type CreateSessionInput,
+  type CreateWorktreeInput,
   type DesktopAppState,
   type NotificationPreferences,
+  type RemoveWorktreeInput,
   type TranscriptMessage,
   type WorkspaceSessionTarget,
 } from "../src/desktop-state";
@@ -32,6 +35,7 @@ import {
 import { TranscriptCacheStore } from "./transcript-cache-store";
 import { AttachmentStore } from "./attachment-store";
 import {
+  buildWorktreeRecords,
   buildWorkspaceRecords,
   cloneComposerImageAttachment,
   cloneComposerImageAttachments,
@@ -45,6 +49,7 @@ import {
   toTranscriptAttachments,
   toSessionRef,
 } from "./app-store-utils";
+import { type CreateWorktreeOptions, GitWorktreeManager } from "./worktree-manager";
 
 type StateListener = (state: DesktopAppState) => void;
 type SessionEventListener = (event: SessionDriverEvent, state: DesktopAppState) => void | Promise<void>;
@@ -54,6 +59,7 @@ interface RefreshStateOptions {
   readonly selectedSessionId?: string;
   readonly composerDraft?: string;
   readonly clearLastError?: boolean;
+  readonly refreshWorktrees?: boolean;
 }
 
 export interface DesktopAppStoreOptions {
@@ -77,6 +83,8 @@ export class DesktopAppStore {
   private readonly listeners = new Set<StateListener>();
   private readonly sessionEventListeners = new Set<SessionEventListener>();
   private readonly driver: PiSdkDriver;
+  private readonly catalogStore: JsonCatalogStore;
+  private readonly worktreeManager: GitWorktreeManager;
   private readonly uiStateFilePath: string;
   private readonly transcriptStore: TranscriptCacheStore;
   private readonly attachmentStore: AttachmentStore;
@@ -98,11 +106,14 @@ export class DesktopAppStore {
   private initPromise: Promise<void> | undefined;
 
   constructor(options: DesktopAppStoreOptions) {
+    const catalogFilePath = join(options.userDataDir, "catalogs.json");
     const driverOptions: PiSdkDriverConfig = {
-      catalogFilePath: join(options.userDataDir, "catalogs.json"),
+      catalogFilePath,
     };
 
     this.driver = new PiSdkDriver(driverOptions);
+    this.catalogStore = new JsonCatalogStore({ catalogFilePath });
+    this.worktreeManager = new GitWorktreeManager({ catalogStorage: this.catalogStore });
     this.uiStateFilePath = join(options.userDataDir, "ui-state.json");
     this.transcriptStore = new TranscriptCacheStore(options.userDataDir);
     this.attachmentStore = new AttachmentStore(options.userDataDir);
@@ -149,6 +160,7 @@ export class DesktopAppStore {
         selectedWorkspaceId: existing.id,
         selectedSessionId: this.state.selectedSessionId,
         clearLastError: true,
+        refreshWorktrees: true,
       });
     }
 
@@ -164,6 +176,7 @@ export class DesktopAppStore {
         selectedSessionId: firstSession?.sessionRef.sessionId ?? "",
         composerDraft: "",
         clearLastError: true,
+        refreshWorktrees: true,
       });
     } catch (error) {
       return this.withError(error);
@@ -208,6 +221,70 @@ export class DesktopAppStore {
     }
   }
 
+  async createWorktree(input: CreateWorktreeInput): Promise<DesktopAppState> {
+    await this.initialize();
+    const rootWorkspace = this.workspaceRefFromState(input.workspaceId);
+    if (!rootWorkspace) {
+      return this.withError(`Unknown workspace: ${input.workspaceId}`);
+    }
+
+    try {
+      const createOptions = this.defaultWorktreeOptions(
+        rootWorkspace,
+        input.fromSessionWorkspaceId,
+        input.fromSessionId,
+      );
+      const created = await this.worktreeManager.createWorktree(rootWorkspace, createOptions);
+      const synced = await this.driver.syncWorkspace(created.path, created.displayName);
+      if (input.fromSessionId) {
+        await this.driver.createSession(
+          synced.workspace,
+          { title: this.sessionTitleForWorktree(input.fromSessionWorkspaceId ?? input.workspaceId, input.fromSessionId) },
+        );
+      }
+
+      return this.refreshState({
+        selectedWorkspaceId: created.path,
+        selectedSessionId: "",
+        composerDraft: "",
+        clearLastError: true,
+        refreshWorktrees: false,
+      });
+    } catch (error) {
+      return this.withError(error);
+    }
+  }
+
+  async removeWorktree(input: RemoveWorktreeInput): Promise<DesktopAppState> {
+    await this.initialize();
+    const rootWorkspace = this.workspaceRefFromState(input.workspaceId);
+    if (!rootWorkspace) {
+      return this.withError(`Unknown workspace: ${input.workspaceId}`);
+    }
+
+    try {
+      const worktree = await this.catalogStore.worktrees.getWorktree(input.worktreeId);
+      await this.worktreeManager.removeWorktree(rootWorkspace, input.worktreeId);
+      if (worktree?.path) {
+        await this.driver.removeWorkspace(worktree.path).catch(() => undefined);
+      }
+
+      const selectedWorkspaceId =
+        this.state.selectedWorkspaceId === input.worktreeId ? input.workspaceId : this.state.selectedWorkspaceId;
+      const selectedSessionId =
+        this.state.selectedWorkspaceId === input.worktreeId ? "" : this.state.selectedSessionId;
+      return this.refreshState({
+        selectedWorkspaceId,
+        selectedSessionId,
+        composerDraft: "",
+        clearLastError: true,
+        refreshWorktrees: false,
+      });
+    } catch (error) {
+      return this.withError(error);
+    }
+  }
+
   async selectWorkspace(workspaceId: string): Promise<DesktopAppState> {
     await this.initialize();
     const workspace = this.state.workspaces.find((entry) => entry.id === workspaceId);
@@ -219,6 +296,7 @@ export class DesktopAppStore {
       selectedWorkspaceId: workspaceId,
       selectedSessionId: this.state.selectedWorkspaceId === workspaceId ? this.state.selectedSessionId : "",
       clearLastError: true,
+      refreshWorktrees: true,
     });
   }
 
@@ -617,6 +695,7 @@ export class DesktopAppStore {
         selectedSessionId: persisted.selectedSessionId,
         composerDraft: persisted.composerDraft,
         clearLastError: true,
+        refreshWorktrees: true,
       });
     } catch (error) {
       this.state = {
@@ -659,17 +738,22 @@ export class DesktopAppStore {
       this.driver.listWorkspaces(),
       this.driver.listSessions(),
     ]);
+    const worktreeEntries = options.refreshWorktrees
+      ? await this.syncAndListWorktrees(workspacesSnapshot.workspaces)
+      : (await this.catalogStore.worktrees.listWorktrees()).worktrees;
 
     await this.pruneStaleSessionSubscriptions(sessionsSnapshot.sessions);
     await this.ensureSubscriptionsForSessions(sessionsSnapshot.sessions);
 
     let workspaces = buildWorkspaceRecords(
       workspacesSnapshot.workspaces,
+      worktreeEntries,
       sessionsSnapshot.sessions,
       this.transcriptCache,
       this.runningSinceBySession,
       this.sessionConfigBySession,
     );
+    const worktreesByWorkspace = buildWorktreeRecords(workspacesSnapshot.workspaces, worktreeEntries);
     const liveWorkspaceIds = new Set(workspaces.map((workspace) => workspace.id));
     for (const workspaceId of this.runtimeByWorkspace.keys()) {
       if (!liveWorkspaceIds.has(workspaceId)) {
@@ -695,6 +779,7 @@ export class DesktopAppStore {
       await this.ensureComposerAttachmentsLoaded(sessionRef);
       workspaces = buildWorkspaceRecords(
         workspacesSnapshot.workspaces,
+        worktreeEntries,
         sessionsSnapshot.sessions,
         this.transcriptCache,
         this.runningSinceBySession,
@@ -709,6 +794,7 @@ export class DesktopAppStore {
     this.state = {
       ...this.state,
       workspaces,
+      worktreesByWorkspace,
       selectedWorkspaceId,
       selectedSessionId,
       runtimeByWorkspace: this.serializeRuntimeState(),
@@ -725,13 +811,14 @@ export class DesktopAppStore {
   async syncCurrentWorkspace(): Promise<DesktopAppState> {
     await this.initialize();
     if (!this.state.selectedWorkspaceId) {
-      return this.refreshState({ clearLastError: true });
+      return this.refreshState({ clearLastError: true, refreshWorktrees: true });
     }
 
     return this.syncWorkspace(this.state.selectedWorkspaceId, {
       selectedWorkspaceId: this.state.selectedWorkspaceId,
       selectedSessionId: this.state.selectedSessionId,
       clearLastError: true,
+      refreshWorktrees: true,
     });
   }
 
@@ -905,6 +992,72 @@ export class DesktopAppStore {
     await this.emitSessionEvent(event, snapshot);
   }
 
+  private async syncAndListWorktrees(
+    workspaces: readonly { workspaceId: string; path: string; displayName: string }[],
+  ): Promise<readonly WorktreeCatalogEntry[]> {
+    const existing = await this.catalogStore.worktrees.listWorktrees();
+    const existingPrimaryByWorkspaceId = new Set(
+      existing.worktrees.filter((worktree) => worktree.kind === "primary").map((worktree) => worktree.workspaceId),
+    );
+    const inspected = await Promise.all(
+      workspaces.map(async (workspace) => {
+        try {
+          const inspection = await this.worktreeManager.inspectWorkspace(workspace);
+          return {
+            workspace,
+            ...inspection,
+          };
+        } catch {
+          return {
+            workspace,
+            canonicalPath: workspace.path,
+            commonDir: `workspace:${workspace.workspaceId}`,
+          };
+        }
+      }),
+    );
+    const groups = new Map<string, typeof inspected>();
+
+    for (const entry of inspected) {
+      const group = groups.get(entry.commonDir);
+      if (group) {
+        group.push(entry);
+      } else {
+        groups.set(entry.commonDir, [entry]);
+      }
+    }
+
+    const syncRoots = [...groups.values()]
+      .map((group) =>
+        [...group].sort((left, right) => {
+          if (left.canonicalPath.length !== right.canonicalPath.length) {
+            return left.canonicalPath.length - right.canonicalPath.length;
+          }
+          const leftIsExistingPrimary = existingPrimaryByWorkspaceId.has(left.workspace.workspaceId);
+          const rightIsExistingPrimary = existingPrimaryByWorkspaceId.has(right.workspace.workspaceId);
+          if (leftIsExistingPrimary !== rightIsExistingPrimary) {
+            return leftIsExistingPrimary ? -1 : 1;
+          }
+          return left.workspace.displayName.localeCompare(right.workspace.displayName);
+        })[0],
+      )
+      .filter((entry): entry is (typeof inspected)[number] => Boolean(entry));
+
+    await Promise.all(
+      syncRoots.map((entry) =>
+        this.worktreeManager
+          .refreshWorktrees({
+            workspaceId: entry.workspace.workspaceId,
+            path: entry.workspace.path,
+            displayName: entry.workspace.displayName,
+          })
+          .catch(() => undefined),
+      ),
+    );
+
+    return (await this.catalogStore.worktrees.listWorktrees()).worktrees;
+  }
+
   private workspaceRefFromState(workspaceId: string): WorkspaceRef | undefined {
     const workspace = this.state.workspaces.find((entry) => entry.id === workspaceId);
     if (!workspace) {
@@ -916,6 +1069,34 @@ export class DesktopAppStore {
       path: workspace.path,
       displayName: workspace.name,
     };
+  }
+
+  private defaultWorktreeOptions(
+    workspace: WorkspaceRef,
+    fromSessionWorkspaceId?: string,
+    fromSessionId?: string,
+  ): CreateWorktreeOptions {
+    const sessionTitle =
+      fromSessionId && fromSessionWorkspaceId
+        ? this.sessionTitleForWorktree(fromSessionWorkspaceId, fromSessionId)
+        : undefined;
+    const baseLabel = slugify(sessionTitle || workspace.displayName || basename(workspace.path) || "worktree");
+    const suffix = timestampSuffix();
+    const folderName = `${baseLabel}-${suffix}`;
+    const repoName = basename(workspace.path);
+    return {
+      path: join(dirname(workspace.path), `${repoName}-worktrees`, folderName),
+      displayName: sessionTitle || titleizeSlug(baseLabel),
+      branchName: `pi/${folderName}`,
+      startPoint: "HEAD",
+    };
+  }
+
+  private sessionTitleForWorktree(workspaceId: string, sessionId: string): string | undefined {
+    return this.state.workspaces
+      .find((workspace) => workspace.id === workspaceId)
+      ?.sessions.find((session) => session.id === sessionId)
+      ?.title.trim();
   }
 
   private serializeRuntimeState(): Record<string, RuntimeSnapshot> {
@@ -1179,4 +1360,34 @@ export class DesktopAppStore {
       this.sessionConfigBySession.delete(key);
     }
   }
+}
+
+function slugify(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "worktree";
+}
+
+function titleizeSlug(value: string): string {
+  return value
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function timestampSuffix(): string {
+  const now = new Date();
+  const parts = [
+    now.getUTCFullYear().toString(),
+    String(now.getUTCMonth() + 1).padStart(2, "0"),
+    String(now.getUTCDate()).padStart(2, "0"),
+    String(now.getUTCHours()).padStart(2, "0"),
+    String(now.getUTCMinutes()).padStart(2, "0"),
+    String(now.getUTCSeconds()).padStart(2, "0"),
+    String(now.getUTCMilliseconds()).padStart(3, "0"),
+  ];
+  return `${parts.join("")}-${randomUUID().slice(0, 6)}`;
 }

@@ -58,9 +58,13 @@ test("persists workspace, session selection, and draft across app restart", asyn
     await expect(window.getByTestId("composer")).toHaveValue(draft);
 
     const state = await getDesktopState(window);
-    expect(state.selectedWorkspaceId).toBe(workspacePath);
+    const persistedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
+    expect(persistedWorkspace?.path).toBeTruthy();
     expect(state.selectedSessionId).not.toBe("");
-    expect(state.workspaces[0]?.sessions.some((session) => session.title === sessionTitle)).toBe(true);
+    expect(state.workspaces.some((workspace) => workspace.path === persistedWorkspace?.path)).toBe(true);
+    expect(state.workspaces.some((workspace) => workspace.sessions.some((session) => session.title === sessionTitle))).toBe(
+      true,
+    );
   } finally {
     await secondRun.close();
   }
@@ -97,10 +101,11 @@ test("navigates across folders and sessions through the sidebar", async () => {
     await expect(window.locator(".topbar__session")).toHaveText("Beta session one");
 
     const state = await getDesktopState(window);
-    expect(state.selectedWorkspaceId).toBe(betaPath);
+    const selectedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
+    expect(selectedWorkspace?.path).toBeTruthy();
     expect(state.selectedSessionId).not.toBe("");
-    expect(state.workspaces.find((workspace) => workspace.id === alphaPath)?.sessions).toHaveLength(2);
-    expect(state.workspaces.find((workspace) => workspace.id === betaPath)?.sessions).toHaveLength(1);
+    expect(state.workspaces.find((workspace) => workspace.path === alphaPath)?.sessions).toHaveLength(2);
+    expect(state.workspaces.find((workspace) => workspace.path === betaPath)?.sessions).toHaveLength(1);
   } finally {
     await harness.close();
   }

@@ -24,6 +24,32 @@
   min-width: 0;
 }
 
+.environment-picker,
+.environment-picker * {
+  -webkit-app-region: no-drag;
+}
+
+.environment-picker {
+  position: relative;
+}
+
+.environment-picker__button {
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid #d7dce8;
+  background: #ffffff;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.environment-picker__menu {
+  left: 0;
+  right: auto;
+  min-width: 190px;
+}
+
 .topbar__workspace,
 .topbar__session {
   font-size: 13px;

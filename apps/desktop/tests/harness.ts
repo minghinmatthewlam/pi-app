@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -72,7 +72,7 @@ export async function makeWorkspace(name: string): Promise<string> {
   const workspacePath = join(root, name);
   await mkdir(workspacePath, { recursive: true });
   await writeFile(join(workspacePath, "README.md"), `# ${name}\n`, "utf8");
-  return workspacePath;
+  return realpath(workspacePath);
 }
 
 export async function getDesktopState(window: Page) {
@@ -102,12 +102,29 @@ export async function addWorkspace(window: Page, workspacePath: string): Promise
 }
 
 export async function createSession(window: Page, workspaceId: string, title: string): Promise<void> {
-  await window.evaluate(async ({ workspaceId: targetWorkspaceId, title: targetTitle }) => {
+  await window.evaluate(async ({ workspaceId: workspaceTarget, title: targetTitle }) => {
     const app = (window as PiAppWindow).piApp;
     if (!app) {
       throw new Error("piApp IPC bridge is unavailable");
     }
-    await app.createSession({ workspaceId: targetWorkspaceId, title: targetTitle });
+    const deadline = Date.now() + 10_000;
+    let workspace:
+      | Awaited<ReturnType<PiDesktopApi["getState"]>>["workspaces"][number]
+      | undefined;
+
+    while (Date.now() < deadline) {
+      const state = await app.getState();
+      workspace = state.workspaces.find((entry) => entry.id === workspaceTarget || entry.path === workspaceTarget);
+      if (workspace) {
+        break;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
+    }
+
+    if (!workspace) {
+      throw new Error(`Workspace not found: ${workspaceTarget}`);
+    }
+    await app.createSession({ workspaceId: workspace.id, title: targetTitle });
   }, { workspaceId, title });
 }
 

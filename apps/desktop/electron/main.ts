@@ -6,7 +6,13 @@ import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
 import { NotificationManager } from "./notification-manager";
 import { desktopIpc } from "../src/ipc";
-import type { ComposerImageAttachment, CreateSessionInput, WorkspaceSessionTarget } from "../src/desktop-state";
+import type {
+  ComposerImageAttachment,
+  CreateSessionInput,
+  CreateWorktreeInput,
+  RemoveWorktreeInput,
+  WorkspaceSessionTarget,
+} from "../src/desktop-state";
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 let store: DesktopAppStore;
@@ -114,6 +120,12 @@ app.whenReady().then(async () => {
     }
     await shell.openPath(workspacePath);
   });
+  ipcMain.handle(desktopIpc.createWorktree, (_event, input: CreateWorktreeInput) =>
+    store.createWorktree(input),
+  );
+  ipcMain.handle(desktopIpc.removeWorktree, (_event, input: RemoveWorktreeInput) =>
+    store.removeWorktree(input),
+  );
   ipcMain.handle(desktopIpc.syncCurrentWorkspace, () => store.syncCurrentWorkspace());
   ipcMain.handle(desktopIpc.selectSession, (_event, target: WorkspaceSessionTarget) =>
     store.selectSession(target),

@@ -5,6 +5,7 @@ import {
   getSelectedWorkspace,
   type AppView,
   type DesktopAppState,
+  type WorktreeRecord,
   type WorkspaceRecord,
 } from "./desktop-state";
 import { FolderIcon, PlusIcon, SettingsIcon, SkillIcon } from "./icons";
@@ -139,20 +140,44 @@ export default function App() {
   const [slashOptionProviderId, setSlashOptionProviderId] = useState<string | undefined>();
   const [slashMenuSuppressedDraft, setSlashMenuSuppressedDraft] = useState("");
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
+  const [worktreeMenuId, setWorktreeMenuId] = useState<string | null>(null);
   const [workspaceRenameId, setWorkspaceRenameId] = useState<string | null>(null);
   const [workspaceRenameDraft, setWorkspaceRenameDraft] = useState("");
+  const [environmentMenuOpen, setEnvironmentMenuOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const lastTranscriptMarkerRef = useRef("");
   const pinnedToBottomRef = useRef(true);
   const workspaceMenuWrapRef = useRef<HTMLSpanElement | null>(null);
+  const worktreeMenuWrapRef = useRef<HTMLSpanElement | null>(null);
   const workspaceRenamePanelRef = useRef<HTMLFormElement | null>(null);
   const workspaceRenameInputRef = useRef<HTMLInputElement | null>(null);
+  const environmentMenuRef = useRef<HTMLDivElement | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const api = window.piApp;
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
+  const rootWorkspace =
+    selectedWorkspace?.kind === "worktree"
+      ? snapshot?.workspaces.find((workspace) => workspace.id === selectedWorkspace.rootWorkspaceId) ?? selectedWorkspace
+      : selectedWorkspace;
+  const primaryWorkspaces = snapshot?.workspaces.filter((workspace) => workspace.kind === "primary") ?? [];
+  const orphanWorkspaces =
+    snapshot?.workspaces.filter(
+      (workspace) =>
+        workspace.kind === "worktree" &&
+        !snapshot.workspaces.some((candidate) => candidate.id === workspace.rootWorkspaceId),
+    ) ?? [];
+  const visibleWorkspaces =
+    primaryWorkspaces.length > 0 ? [...primaryWorkspaces, ...orphanWorkspaces] : (snapshot?.workspaces ?? []);
+  const activeWorktrees = rootWorkspace ? snapshot?.worktreesByWorkspace[rootWorkspace.id] ?? [] : [];
+  const linkedWorktreeByWorkspaceId = new Map(
+    Object.values(snapshot?.worktreesByWorkspace ?? {})
+      .flat()
+      .filter((worktree) => Boolean(worktree.linkedWorkspaceId))
+      .map((worktree) => [worktree.linkedWorkspaceId as string, worktree] as const),
+  );
   const selectedRuntime = selectedWorkspace ? snapshot?.runtimeByWorkspace[selectedWorkspace.id] : undefined;
   const composerAttachments = snapshot?.composerAttachments ?? [];
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
@@ -245,17 +270,23 @@ export default function App() {
         return;
       }
       const menuContains = workspaceMenuWrapRef.current?.contains(target) ?? false;
+      const worktreeMenuContains = worktreeMenuWrapRef.current?.contains(target) ?? false;
       const renamePanelContains = workspaceRenamePanelRef.current?.contains(target) ?? false;
-      if (!menuContains && !renamePanelContains) {
+      const environmentMenuContains = environmentMenuRef.current?.contains(target) ?? false;
+      if (!menuContains && !worktreeMenuContains && !renamePanelContains && !environmentMenuContains) {
         setWorkspaceMenuId(null);
+        setWorktreeMenuId(null);
         setWorkspaceRenameId(null);
+        setEnvironmentMenuOpen(false);
       }
     };
 
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
         setWorkspaceMenuId(null);
+        setWorktreeMenuId(null);
         setWorkspaceRenameId(null);
+        setEnvironmentMenuOpen(false);
       }
     };
 
@@ -434,6 +465,7 @@ export default function App() {
 
   const handleWorkspaceRenameStart = (workspace: WorkspaceRecord) => {
     setWorkspaceMenuId(null);
+    setWorktreeMenuId(null);
     setWorkspaceRenameId(workspace.id);
     setWorkspaceRenameDraft(workspace.name);
   };
@@ -453,6 +485,7 @@ export default function App() {
   const handleWorkspaceRemove = (workspace: WorkspaceRecord) => {
     const confirmed = window.confirm(`Remove ${workspace.name} from pi-app? This will not delete any files.`);
     setWorkspaceMenuId(null);
+    setWorktreeMenuId(null);
     setWorkspaceRenameId(null);
     if (!confirmed) {
       return;
@@ -463,6 +496,32 @@ export default function App() {
   const handleWorkspaceRenameCancel = () => {
     setWorkspaceRenameId(null);
     setWorkspaceRenameDraft("");
+  };
+
+  const handleCreateWorktree = (workspaceId: string, fromSessionWorkspaceId?: string, fromSessionId?: string) => {
+    setWorkspaceMenuId(null);
+    setWorktreeMenuId(null);
+    setEnvironmentMenuOpen(false);
+    void updateSnapshot(api, setSnapshot, () =>
+      api.createWorktree({ workspaceId, fromSessionWorkspaceId, fromSessionId }),
+    );
+  };
+
+  const handleRemoveWorktree = (workspaceId: string, worktree: WorktreeRecord) => {
+    const confirmed = window.confirm(`Remove worktree ${worktree.name}? This removes the git worktree from disk.`);
+    setWorktreeMenuId(null);
+    setEnvironmentMenuOpen(false);
+    if (!confirmed) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () =>
+      api.removeWorktree({ workspaceId, worktreeId: worktree.id }),
+    );
+  };
+
+  const handleSelectWorkspace = (workspaceId: string) => {
+    setEnvironmentMenuOpen(false);
+    void updateSnapshot(api, setSnapshot, () => api.selectWorkspace(workspaceId));
   };
 
   const handleTimelineScroll = () => {
@@ -747,7 +806,7 @@ export default function App() {
             </div>
           </div>
 
-          {snapshot.workspaces.length === 0 ? (
+          {visibleWorkspaces.length === 0 ? (
             <div className="empty-state" data-testid="empty-state">
               <h2>No folders yet</h2>
               <p>Open a project folder to start building a workspace and session list.</p>
@@ -763,16 +822,16 @@ export default function App() {
             </div>
           ) : (
             <div className="workspace-list" data-testid="workspace-list">
-              {snapshot.workspaces.map((workspace: WorkspaceRecord) => {
+              {visibleWorkspaces.map((workspace: WorkspaceRecord) => {
                 const workspaceActive = workspace.id === selectedWorkspace?.id;
+                const worktrees = snapshot.worktreesByWorkspace[workspace.id] ?? [];
+                const linkedWorktree = linkedWorktreeByWorkspaceId.get(workspace.id);
                 return (
                   <section key={workspace.id} className="workspace-group">
                     <div className={`workspace-row ${workspaceActive ? "workspace-row--active" : ""}`}>
                       <button
                         className="workspace-row__select"
-                        onClick={() => {
-                          void updateSnapshot(api, setSnapshot, () => api.selectWorkspace(workspace.id));
-                        }}
+                        onClick={() => handleSelectWorkspace(workspace.id)}
                         type="button"
                       >
                         <span className="workspace-row__icon" aria-hidden="true">
@@ -812,6 +871,29 @@ export default function App() {
                             >
                               Open in Finder
                             </button>
+                            {linkedWorktree ? (
+                              <button
+                                className="workspace-menu__item workspace-menu__item--danger"
+                                type="button"
+                                onClick={(event) =>
+                                  runWorkspaceMenuAction(event, () =>
+                                    handleRemoveWorktree(linkedWorktree.rootWorkspaceId || workspace.id, linkedWorktree),
+                                  )
+                                }
+                              >
+                                Remove worktree
+                              </button>
+                            ) : (
+                              <button
+                                className="workspace-menu__item"
+                                type="button"
+                                onClick={(event) =>
+                                  runWorkspaceMenuAction(event, () => handleCreateWorktree(workspace.id))
+                                }
+                              >
+                                Create permanent worktree
+                              </button>
+                            )}
                             <button
                               className="workspace-menu__item"
                               type="button"
@@ -890,6 +972,112 @@ export default function App() {
                         );
                       })}
                     </div>
+                    {worktrees.length > 0 ? (
+                      <div className="worktree-list">
+                        {worktrees.map((worktree) => {
+                          const linkedWorkspace = snapshot.workspaces.find(
+                            (candidate) => candidate.id === worktree.linkedWorkspaceId,
+                          );
+                          const active = linkedWorkspace?.id === selectedWorkspace?.id;
+                          return (
+                            <div key={worktree.id} className="worktree-group">
+                              <div className={`worktree-row ${active ? "worktree-row--active" : ""}`}>
+                                <button
+                                  className="worktree-row__select"
+                                  disabled={!linkedWorkspace}
+                                  type="button"
+                                  onClick={() => {
+                                    if (linkedWorkspace) {
+                                      handleSelectWorkspace(linkedWorkspace.id);
+                                    }
+                                  }}
+                                >
+                                  <span className="worktree-row__name">{worktree.name}</span>
+                                  <span className="worktree-row__meta">
+                                    {worktree.branchName ?? "worktree"}
+                                    {worktree.status !== "ready" ? ` · ${worktree.status}` : ""}
+                                  </span>
+                                </button>
+                                <span
+                                  className="workspace-row__menu-wrap"
+                                  ref={worktreeMenuId === worktree.id ? worktreeMenuWrapRef : undefined}
+                                >
+                                  <button
+                                    aria-label={`Worktree actions for ${worktree.name}`}
+                                    aria-haspopup="menu"
+                                    className="icon-button workspace-row__menu-button"
+                                    aria-expanded={worktreeMenuId === worktree.id}
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      setWorktreeMenuId((current) => (current === worktree.id ? null : worktree.id));
+                                    }}
+                                  >
+                                    …
+                                  </button>
+                                  {worktreeMenuId === worktree.id ? (
+                                    <div className="workspace-menu">
+                                      <button
+                                        className="workspace-menu__item"
+                                        type="button"
+                                        onClick={(event) =>
+                                          runWorkspaceMenuAction(event, () => {
+                                            if (linkedWorkspace) {
+                                              void api.openWorkspaceInFinder(linkedWorkspace.id);
+                                            }
+                                          })
+                                        }
+                                      >
+                                        Open in Finder
+                                      </button>
+                                      <button
+                                        className="workspace-menu__item workspace-menu__item--danger"
+                                        type="button"
+                                        onClick={(event) =>
+                                          runWorkspaceMenuAction(event, () => handleRemoveWorktree(workspace.id, worktree))
+                                        }
+                                      >
+                                        Remove worktree
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </span>
+                              </div>
+                              {linkedWorkspace && active ? (
+                                <div className="session-list session-list--nested">
+                                  {linkedWorkspace.sessions.map((session) => {
+                                    const sessionActive =
+                                      linkedWorkspace.id === selectedWorkspace?.id && session.id === selectedSession?.id;
+                                    return (
+                                      <button
+                                        key={session.id}
+                                        className={`session-row ${sessionActive ? "session-row--active" : ""}`}
+                                        onClick={() => {
+                                          void updateSnapshot(api, setSnapshot, () =>
+                                            api.selectSession({ workspaceId: linkedWorkspace.id, sessionId: session.id }),
+                                          );
+                                        }}
+                                        type="button"
+                                      >
+                                        <span className={`session-row__status session-row__status--${session.status}`} />
+                                        <span className="session-row__body">
+                                          <span className="session-row__title">{session.title}</span>
+                                          {sessionActive && session.preview ? (
+                                            <span className="session-row__preview">{session.preview}</span>
+                                          ) : null}
+                                        </span>
+                                        <span className="session-row__time">{formatRelativeTime(session.updatedAt)}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </section>
                 );
               })}
@@ -902,8 +1090,64 @@ export default function App() {
         <header className="topbar" data-testid="topbar" onDoubleClick={handleTopbarDoubleClick}>
           <div className="topbar__title">
             <span className="topbar__workspace">
-              {selectedWorkspace ? selectedWorkspace.name : "Open a folder to begin"}
+              {rootWorkspace ? rootWorkspace.name : "Open a folder to begin"}
             </span>
+            {selectedWorkspace && snapshot.activeView === "threads" ? (
+              <>
+                <span className="topbar__separator">/</span>
+                <div className="environment-picker" ref={environmentMenuRef}>
+                  <button
+                    aria-expanded={environmentMenuOpen}
+                    aria-haspopup="menu"
+                    className="environment-picker__button"
+                    type="button"
+                    onClick={() => setEnvironmentMenuOpen((current) => !current)}
+                  >
+                    {selectedWorkspace.kind === "worktree" ? selectedWorkspace.name : "Local project"}
+                  </button>
+                  {environmentMenuOpen && rootWorkspace ? (
+                    <div className="workspace-menu environment-picker__menu">
+                      <button
+                        className="workspace-menu__item"
+                        type="button"
+                        onClick={() => handleSelectWorkspace(rootWorkspace.id)}
+                      >
+                        Local project
+                      </button>
+                      {activeWorktrees.map((worktree) => {
+                        const linkedWorkspace = snapshot.workspaces.find(
+                          (workspace) => workspace.id === worktree.linkedWorkspaceId,
+                        );
+                        const worktreeSelectable = Boolean(linkedWorkspace) && worktree.status === "ready";
+                        return (
+                          <button
+                            className="workspace-menu__item"
+                            key={worktree.id}
+                            type="button"
+                            disabled={!worktreeSelectable}
+                            onClick={() => {
+                              if (worktreeSelectable && linkedWorkspace) {
+                                handleSelectWorkspace(linkedWorkspace.id);
+                              }
+                            }}
+                          >
+                            {worktree.name}
+                            {!worktreeSelectable ? ` (${worktree.status !== "ready" ? worktree.status : "unavailable"})` : ""}
+                          </button>
+                        );
+                      })}
+                      <button
+                        className="workspace-menu__item"
+                        type="button"
+                        onClick={() => handleCreateWorktree(rootWorkspace.id, selectedWorkspace?.id, selectedSession?.id)}
+                      >
+                        New worktree
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
             {selectedWorkspace && snapshot.activeView === "threads" && selectedSession ? (
               <>
                 <span className="topbar__separator">/</span>
@@ -967,7 +1211,11 @@ export default function App() {
             <section className="canvas">
               <div className="conversation">
                 <div className="chat-header">
-                  <div className="chat-header__eyebrow">{selectedWorkspace.name}</div>
+                  <div className="chat-header__eyebrow">
+                    {selectedWorkspace.kind === "worktree"
+                      ? `${rootWorkspace?.name ?? selectedWorkspace.name} · ${selectedWorkspace.branchName ?? "Worktree"}`
+                      : `${selectedWorkspace.name} · Local project`}
+                  </div>
                   <div className="chat-header__row">
                     <h1 className="chat-header__title">{selectedSession.title}</h1>
                     <div className="chat-header__status">

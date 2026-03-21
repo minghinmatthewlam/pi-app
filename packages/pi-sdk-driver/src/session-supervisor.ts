@@ -1,4 +1,5 @@
-import { access } from "node:fs/promises";
+import { access, realpath } from "node:fs/promises";
+import { resolve } from "node:path";
 import {
   createAgentSession,
   SessionManager,
@@ -90,7 +91,7 @@ export class SessionSupervisor {
   }
 
   async registerWorkspace(path: string, displayName?: string): Promise<WorkspaceRef> {
-    const workspace = createWorkspaceRef(path, displayName);
+    const workspace = await createCanonicalWorkspaceRef(path, displayName);
     await this.touchWorkspace(workspace);
     return workspace;
   }
@@ -165,7 +166,7 @@ export class SessionSupervisor {
       throw new Error(`Unknown workspace: ${workspaceId}`);
     }
 
-    const nextWorkspace = createWorkspaceRef(existing.path, displayName.trim() || undefined);
+    const nextWorkspace = await createCanonicalWorkspaceRef(existing.path, displayName.trim() || undefined);
     await this.touchWorkspace(nextWorkspace);
 
     for (const record of this.records.values()) {
@@ -686,6 +687,20 @@ export class SessionSupervisor {
       sessionFilePath: info.path,
     };
     return previewSnippet !== undefined ? { ...entry, previewSnippet } : entry;
+  }
+}
+
+async function createCanonicalWorkspaceRef(path: string, displayName?: string): Promise<WorkspaceRef> {
+  const canonicalPath = await canonicalizePath(path);
+  return createWorkspaceRef(canonicalPath, displayName);
+}
+
+async function canonicalizePath(path: string): Promise<string> {
+  const resolvedPath = resolve(path);
+  try {
+    return await realpath(resolvedPath);
+  } catch {
+    return resolvedPath;
   }
 }
 

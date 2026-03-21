@@ -5,6 +5,8 @@ export type { SessionRole, TranscriptMessage } from "./timeline-types";
 import type { TranscriptMessage } from "./timeline-types";
 
 export type AppView = "threads" | "skills" | "settings";
+export type WorkspaceKind = "primary" | "worktree";
+export type WorktreeStatus = "ready" | "missing" | "error";
 
 export interface NotificationPreferences {
   readonly backgroundCompletion: boolean;
@@ -30,16 +32,42 @@ export interface SessionRecord {
   readonly transcript: readonly TranscriptMessage[];
 }
 
+export interface WorktreeRecord {
+  readonly id: string;
+  readonly rootWorkspaceId: string;
+  readonly linkedWorkspaceId?: string;
+  readonly name: string;
+  readonly path: string;
+  readonly status: WorktreeStatus;
+  readonly branchName?: string;
+  readonly updatedAt: string;
+}
+
 export interface WorkspaceRecord {
   readonly id: string;
   readonly name: string;
   readonly path: string;
   readonly lastOpenedAt: string;
+  readonly kind: WorkspaceKind;
+  readonly rootWorkspaceId?: string;
+  readonly branchName?: string;
   readonly sessions: readonly SessionRecord[];
+}
+
+export interface CreateWorktreeInput {
+  readonly workspaceId: string;
+  readonly fromSessionWorkspaceId?: string;
+  readonly fromSessionId?: string;
+}
+
+export interface RemoveWorktreeInput {
+  readonly workspaceId: string;
+  readonly worktreeId: string;
 }
 
 export interface DesktopAppState {
   readonly workspaces: readonly WorkspaceRecord[];
+  readonly worktreesByWorkspace: Readonly<Record<string, readonly WorktreeRecord[]>>;
   readonly selectedWorkspaceId: string;
   readonly selectedSessionId: string;
   readonly activeView: AppView;
@@ -64,6 +92,7 @@ export interface WorkspaceSessionTarget {
 export function createEmptyDesktopAppState(): DesktopAppState {
   return {
     workspaces: [],
+    worktreesByWorkspace: {},
     selectedWorkspaceId: "",
     selectedSessionId: "",
     activeView: "threads",
