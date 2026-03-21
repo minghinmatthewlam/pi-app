@@ -50,6 +50,7 @@ function updateSessionRecord(
 ): SessionRecord {
   const snapshot = snapshotForEvent(event);
   const updatedAt = snapshot?.updatedAt ?? event.timestamp;
+  const nextStatus = statusForEvent(session.status, event);
 
   return {
     ...session,
@@ -58,10 +59,9 @@ function updateSessionRecord(
     lastViewedAt,
     archivedAt: snapshot?.archivedAt ?? session.archivedAt,
     preview: preview ?? snapshot?.preview ?? session.preview,
-    status: statusForEvent(session.status, event),
+    status: nextStatus,
     runningSince,
-    hasUnseenUpdate:
-      statusForEvent(session.status, event) !== "running" && Boolean(lastViewedAt && updatedAt > lastViewedAt),
+    hasUnseenUpdate: nextStatus !== "running" && Boolean(lastViewedAt && updatedAt > lastViewedAt),
     config: snapshot?.config ?? session.config,
     transcript,
   };
