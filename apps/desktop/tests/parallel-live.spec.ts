@@ -101,9 +101,10 @@ test("runs two sessions in parallel without sidebar status bleed", async () => {
         sessionBStatus: "running",
       });
 
-    await expect(
-      window.locator(`.session-row[data-session-id="${sessions.sessionAId}"] .session-row__leading`),
-    ).toHaveAttribute("data-status-indicator", "running");
+    await expect(window.locator(`.session-row[data-session-id="${sessions.sessionAId}"]`)).toHaveAttribute(
+      "data-sidebar-indicator",
+      "running",
+    );
 
     await expect
       .poll(async () => {
@@ -121,18 +122,29 @@ test("runs two sessions in parallel without sidebar status bleed", async () => {
         sessionBStatus: "idle",
       });
 
-    await expect(
-      window.locator(`.session-row[data-session-id="${sessions.sessionAId}"] .session-row__leading`),
-    ).toHaveAttribute("data-status-indicator", "unseen");
-    await expect(
-      window.locator(`.session-row[data-session-id="${sessions.sessionBId}"] .session-row__leading`),
-    ).toHaveAttribute("data-status-indicator", "none");
+    await expect(window.locator(`.session-row[data-session-id="${sessions.sessionAId}"]`)).toHaveAttribute(
+      "data-sidebar-indicator",
+      "unseen",
+    );
+    await expect(window.locator(`.session-row[data-session-id="${sessions.sessionBId}"]`)).toHaveAttribute(
+      "data-sidebar-indicator",
+      "none",
+    );
+
+    const alignedTitles = await Promise.all([
+      window.locator(`.session-row[data-session-id="${sessions.sessionAId}"] .session-row__title`).boundingBox(),
+      window.locator(`.session-row[data-session-id="${sessions.sessionBId}"] .session-row__title`).boundingBox(),
+    ]);
+    expect(alignedTitles[0]).not.toBeNull();
+    expect(alignedTitles[1]).not.toBeNull();
+    expect(Math.abs((alignedTitles[0]?.x ?? 0) - (alignedTitles[1]?.x ?? 0))).toBeLessThanOrEqual(1);
 
     await window.locator(`.session-row[data-session-id="${sessions.sessionAId}"] .session-row__select`).click();
     await expect(window.locator(".topbar__session")).toHaveText("Session A");
-    await expect(
-      window.locator(`.session-row[data-session-id="${sessions.sessionAId}"] .session-row__leading`),
-    ).toHaveAttribute("data-status-indicator", "none");
+    await expect(window.locator(`.session-row[data-session-id="${sessions.sessionAId}"]`)).toHaveAttribute(
+      "data-sidebar-indicator",
+      "none",
+    );
 
     const result = await window.evaluate(async ({ workspaceId, sessionAId, sessionBId }) => {
       const app = (window as PiAppWindow).piApp;

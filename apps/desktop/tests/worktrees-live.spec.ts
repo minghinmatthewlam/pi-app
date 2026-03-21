@@ -69,7 +69,7 @@ test("shows a worktree icon in the sidebar without a local text badge", async ()
     await createSession(window, rootWorkspace.id, "Local thread");
     const localRow = window.locator(".session-row", { hasText: "Local thread" });
     await expect(localRow).toBeVisible();
-    await expect(localRow.locator(".session-row__leading")).toHaveAttribute("data-status-indicator", "none");
+    await expect(localRow).toHaveAttribute("data-sidebar-indicator", "none");
     await expect(localRow.locator(".session-row__workspace-icon")).toHaveCount(0);
 
     await window.getByRole("button", { name: `Workspace actions for ${rootWorkspace.name}` }).click();
@@ -94,7 +94,7 @@ test("shows a worktree icon in the sidebar without a local text badge", async ()
     await createSession(window, firstWorktree.id, "Worktree thread");
     const worktreeRow = window.locator(".session-row", { hasText: "Worktree thread" });
     await expect(worktreeRow).toBeVisible();
-    await expect(worktreeRow.locator(".session-row__leading")).toHaveAttribute("data-status-indicator", "none");
+    await expect(worktreeRow).toHaveAttribute("data-sidebar-indicator", "none");
     await expect(worktreeRow.locator(".session-row__workspace-icon")).toHaveCount(1);
     await expect(window.getByTestId("workspace-list")).not.toContainText("Local project");
   } finally {

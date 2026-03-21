@@ -87,17 +87,19 @@ test("navigates across folders and sessions through the sidebar", async () => {
     await addWorkspace(window, alphaPath);
     await createSession(window, alphaPath, "Alpha session one");
     await expect(window.locator(".topbar__session")).toHaveText("Alpha session one");
-    await expect(
-      window.locator(".session-row__select", { hasText: "Alpha session one" }).locator(".session-row__leading"),
-    ).toHaveAttribute("data-status-indicator", "none");
+    await expect(window.locator(".session-row", { hasText: "Alpha session one" })).toHaveAttribute(
+      "data-sidebar-indicator",
+      "none",
+    );
 
     await createSession(window, alphaPath, "Alpha session two");
     await addWorkspace(window, betaPath);
     await createSession(window, betaPath, "Beta session one");
     await expect(window.locator(".topbar__session")).toHaveText("Beta session one");
-    await expect(
-      window.locator(".session-row__select", { hasText: "Alpha session two" }).locator(".session-row__leading"),
-    ).toHaveAttribute("data-status-indicator", "none");
+    await expect(window.locator(".session-row", { hasText: "Alpha session two" })).toHaveAttribute(
+      "data-sidebar-indicator",
+      "none",
+    );
 
     await expect(window.getByTestId("workspace-list")).toContainText(basename(alphaPath));
     await expect(window.getByTestId("workspace-list")).toContainText(basename(betaPath));

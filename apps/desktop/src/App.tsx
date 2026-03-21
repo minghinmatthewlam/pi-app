@@ -1523,7 +1523,7 @@ function ThreadSessionRow({
       data-session-id={thread.session.id}
     >
       <button className="session-row__select" onClick={onSelect} type="button">
-        <span className="session-row__leading" aria-hidden="true" data-status-indicator={indicatorVariant}>
+        <span className="session-row__leading" aria-hidden="true">
           {indicatorVariant === "running" ? <span className="session-row__status session-row__status--running" /> : null}
           {indicatorVariant === "unseen" ? <span className="session-row__status session-row__status--unseen" /> : null}
         </span>

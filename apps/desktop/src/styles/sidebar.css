@@ -377,6 +377,8 @@
   border-radius: 10px;
   min-height: 36px;
   grid-template-columns: minmax(0, 1fr) auto;
+  position: relative;
+  overflow: visible;
 }
 
 .session-row--active {
@@ -391,18 +393,23 @@
   min-width: 0;
   display: grid;
   align-items: center;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
   text-align: left;
   color: inherit;
+  position: relative;
 }
 
 .session-row__leading {
   width: 14px;
-  min-width: 14px;
   height: 14px;
   display: grid;
   place-items: center;
+  position: absolute;
+  left: -18px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .session-row__status {
