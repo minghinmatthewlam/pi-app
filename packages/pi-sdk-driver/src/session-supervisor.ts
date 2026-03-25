@@ -564,54 +564,45 @@ export class SessionSupervisor {
         this.updatePreviewFromMessage(record, event.message);
         record.updatedAt = timestamp;
         if (event.message.role === "assistant" && event.assistantMessageEvent.type === "text_delta") {
-          const base = {
+          return toDriverEvents({
             type: "assistantDelta" as const,
             sessionRef: record.ref,
             timestamp,
             text: event.assistantMessageEvent.delta ?? "",
-          };
-          return record.runningRunId
-            ? [{ ...base, runId: record.runningRunId }, sessionUpdatedEvent(record)]
-            : [base, sessionUpdatedEvent(record)];
+          }, record);
         }
         return [sessionUpdatedEvent(record)];
-      case "tool_execution_start": {
+      case "tool_execution_start":
         record.status = "running";
         record.updatedAt = timestamp;
-        const base = {
+        return toDriverEvents({
           type: "toolStarted" as const,
           sessionRef: record.ref,
           timestamp,
           toolName: event.toolName,
           callId: event.toolCallId,
           input: event.args,
-        };
-        return record.runningRunId ? [{ ...base, runId: record.runningRunId }, sessionUpdatedEvent(record)] : [base, sessionUpdatedEvent(record)];
-      }
-      case "tool_execution_update": {
+        }, record);
+      case "tool_execution_update":
         record.updatedAt = timestamp;
-        const base = {
+        return toDriverEvents({
           type: "toolUpdated" as const,
           sessionRef: record.ref,
           timestamp,
           callId: event.toolCallId,
           ...(typeof event.partialResult === "string" ? { text: event.partialResult } : {}),
           ...(typeof event.partialResult === "number" ? { progress: event.partialResult } : {}),
-        };
-        return record.runningRunId ? [{ ...base, runId: record.runningRunId }, sessionUpdatedEvent(record)] : [base, sessionUpdatedEvent(record)];
-      }
-      case "tool_execution_end": {
+        }, record);
+      case "tool_execution_end":
         record.updatedAt = timestamp;
-        const base = {
+        return toDriverEvents({
           type: "toolFinished" as const,
           sessionRef: record.ref,
           timestamp,
           callId: event.toolCallId,
           success: !event.isError,
           output: event.result,
-        };
-        return record.runningRunId ? [{ ...base, runId: record.runningRunId }, sessionUpdatedEvent(record)] : [base, sessionUpdatedEvent(record)];
-      }
+        }, record);
       case "turn_end":
         record.updatedAt = timestamp;
         return [sessionUpdatedEvent(record)];
@@ -625,20 +616,23 @@ export class SessionSupervisor {
           record.preview = outcome.error.message;
         }
 
-        const base = outcome.success
-          ? {
-              type: "runCompleted" as const,
-              sessionRef: record.ref,
-              timestamp,
-              snapshot: buildSnapshot(record),
-            }
-          : {
-              type: "runFailed" as const,
-              sessionRef: record.ref,
-              timestamp,
-              error: outcome.error ?? toSessionErrorInfo(undefined, "RUN_FAILED"),
-            };
-        return runId ? [{ ...base, runId }, sessionUpdatedEvent(record)] : [base, sessionUpdatedEvent(record)];
+        return toDriverEvents(
+          outcome.success
+            ? {
+                type: "runCompleted" as const,
+                sessionRef: record.ref,
+                timestamp,
+                snapshot: buildSnapshot(record),
+              }
+            : {
+                type: "runFailed" as const,
+                sessionRef: record.ref,
+                timestamp,
+                error: outcome.error ?? toSessionErrorInfo(undefined, "RUN_FAILED"),
+              },
+          record,
+          runId,
+        );
       }
       default:
         return [];
@@ -784,4 +778,14 @@ function sessionUpdatedEvent(record: ManagedSessionRecord): SessionDriverEvent {
     timestamp: record.updatedAt,
     snapshot: buildSnapshot(record),
   };
+}
+
+function toDriverEvents(
+  base: SessionDriverEvent,
+  record: ManagedSessionRecord,
+  runId?: string,
+): SessionDriverEvent[] {
+  const id = runId ?? record.runningRunId;
+  const event = id ? { ...base, runId: id } : base;
+  return [event, sessionUpdatedEvent(record)];
 }
