@@ -1,0 +1,53 @@
+import type { SessionConfig } from "@pi-gui/session-driver";
+import type { ComposerImageAttachment, TranscriptMessage } from "../src/desktop-state";
+import type { RunMetrics } from "./app-store-timeline";
+
+/**
+ * Consolidates all per-session Maps (and one Set) that DesktopAppStore
+ * maintains for runtime session state.  Having them in a single class
+ * makes pruning and deletion consistent — every map is cleaned in one
+ * place instead of manually repeating the list across call sites.
+ */
+export class SessionStateMap {
+  readonly transcriptCache = new Map<string, TranscriptMessage[]>();
+  readonly composerDraftsBySession = new Map<string, string>();
+  readonly composerAttachmentsBySession = new Map<string, ComposerImageAttachment[]>();
+  readonly sessionConfigBySession = new Map<string, SessionConfig>();
+  readonly lastViewedAtBySession = new Map<string, string>();
+  readonly sessionErrorsBySession = new Map<string, string>();
+  readonly sessionSubscriptions = new Map<string, () => void>();
+  readonly activeAssistantMessageBySession = new Map<string, string>();
+  readonly runningSinceBySession = new Map<string, string>();
+  readonly runMetricsBySession = new Map<string, RunMetrics>();
+  readonly activeWorkingActivityBySession = new Map<string, string>();
+  readonly loadedTranscriptKeys = new Set<string>();
+
+  /**
+   * Remove entries for session keys that are no longer active.
+   * Calls the unsubscribe callback for any stale subscription before deleting it.
+   */
+  prune(activeKeys: Set<string>): void {
+    for (const [key, unsubscribe] of this.sessionSubscriptions) {
+      if (!activeKeys.has(key)) {
+        unsubscribe();
+        this.deleteSession(key);
+      }
+    }
+  }
+
+  /** Remove all state for a single session key. */
+  deleteSession(key: string): void {
+    this.sessionSubscriptions.delete(key);
+    this.activeAssistantMessageBySession.delete(key);
+    this.runningSinceBySession.delete(key);
+    this.runMetricsBySession.delete(key);
+    this.activeWorkingActivityBySession.delete(key);
+    this.composerDraftsBySession.delete(key);
+    this.composerAttachmentsBySession.delete(key);
+    this.sessionConfigBySession.delete(key);
+    this.lastViewedAtBySession.delete(key);
+    this.sessionErrorsBySession.delete(key);
+    this.loadedTranscriptKeys.delete(key);
+    this.transcriptCache.delete(key);
+  }
+}
