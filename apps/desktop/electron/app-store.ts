@@ -618,7 +618,6 @@ export class DesktopAppStore implements AppStoreInternals {
     this.markSessionViewedIfVisible(event.sessionRef);
     this.state = {
       ...this.state,
-      lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
       lastError: this.resolveSelectedSessionError(this.state.selectedWorkspaceId, this.state.selectedSessionId, false),
     };
     this.persistTranscriptCacheForSession(event.sessionRef);

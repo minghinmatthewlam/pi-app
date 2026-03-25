@@ -3,7 +3,7 @@ import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { DesktopAppState, SessionRecord, WorkspaceRecord } from "../desktop-state";
 import {
   buildModelOptions,
-  findExactSlashCommand,
+  isExactSlashCommand,
   buildSlashCommandSections,
   flattenSlashSections,
   slashOptionsForCommand,
@@ -90,7 +90,7 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       ? buildSlashCommandSections(slashQuery, selectedRuntime)
       : [];
   const slashSuggestions = flattenSlashSections(slashSections);
-  const exactSlashCommand = findExactSlashCommand(slashQuery, selectedRuntime);
+  const exactSlashCommand = slashSuggestions.find((cmd) => isExactSlashCommand(slashQuery, cmd));
   const activeSlashOptionCommand =
     activeSlashFlow?.command ?? (exactSlashCommand?.submitMode === "pick-option" ? exactSlashCommand : undefined);
   const showSlashMenu =

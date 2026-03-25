@@ -135,31 +135,6 @@ function buildSessionRecord(
   };
 }
 
-export function resolveSelectedWorkspaceId(
-  preferredWorkspaceId: string,
-  workspaces: readonly WorkspaceRecord[],
-): string {
-  if (preferredWorkspaceId && workspaces.some((workspace) => workspace.id === preferredWorkspaceId)) {
-    return preferredWorkspaceId;
-  }
-  return workspaces[0]?.id ?? "";
-}
-
-export function resolveSelectedSessionId(
-  workspaceId: string,
-  preferredSessionId: string,
-  workspaces: readonly WorkspaceRecord[],
-): string {
-  const workspace = workspaces.find((entry) => entry.id === workspaceId);
-  if (!workspace) {
-    return "";
-  }
-  if (preferredSessionId && workspace.sessions.some((session) => session.id === preferredSessionId)) {
-    return preferredSessionId;
-  }
-  return workspace.sessions[0]?.id ?? "";
-}
-
 export function toSessionRef(target: WorkspaceSessionTarget): SessionRef {
   return {
     workspaceId: target.workspaceId,
