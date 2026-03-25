@@ -10,15 +10,7 @@ import {
 } from "./desktop-state";
 import { ArchiveIcon, ChevronDownIcon, FolderIcon, PlusIcon, RestoreIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
 import { ComposerPanel } from "./composer-panel";
-import {
-  buildModelOptions,
-  buildSlashCommandSections,
-  findExactSlashCommand,
-  flattenSlashSections,
-  slashOptionsForCommand,
-  type ComposerSlashCommand,
-  type ComposerSlashOption,
-} from "./composer-commands";
+import type { ComposerSlashCommand } from "./composer-commands";
 import { desktopCommands, getDesktopCommandFromShortcut, type PiDesktopCommand } from "./ipc";
 import { SkillsView } from "./skills-view";
 import { SettingsView, type SettingsSection } from "./settings-view";
@@ -26,10 +18,7 @@ import { TimelineItem } from "./timeline-item";
 import { SecondarySurface } from "./secondary-surface";
 import { NewThreadView } from "./new-thread-view";
 import { buildThreadGroups, type ThreadListEntry } from "./thread-groups";
-
-interface ActiveSlashFlow {
-  readonly command: ComposerSlashCommand;
-}
+import { useSlashMenu } from "./hooks/use-slash-menu";
 
 function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
@@ -131,21 +120,9 @@ function formatRunningLabel(startedAt: string | undefined): string {
   return remaining === 0 ? `Working for ${minutes}m` : `Working for ${minutes}m ${remaining}s`;
 }
 
-function nextMenuIndex(current: number, delta: number, total: number): number {
-  if (!total) {
-    return 0;
-  }
-
-  return (current + delta + total) % total;
-}
-
 export default function App() {
   const [snapshot, setSnapshot] = useDesktopAppState();
   const [composerDraft, setComposerDraft] = useState("");
-  const [slashIndex, setSlashIndex] = useState(0);
-  const [slashOptionIndex, setSlashOptionIndex] = useState(0);
-  const [activeSlashFlow, setActiveSlashFlow] = useState<ActiveSlashFlow | undefined>();
-  const [slashMenuSuppressedDraft, setSlashMenuSuppressedDraft] = useState("");
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
   const [workspaceRenameId, setWorkspaceRenameId] = useState<string | null>(null);
   const [workspaceRenameDraft, setWorkspaceRenameDraft] = useState("");
@@ -231,36 +208,48 @@ export default function App() {
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = `${selectedWorkspace?.id ?? ""}:${selectedSession?.id ?? ""}`;
   const persistedComposerDraft = snapshot?.composerDraft ?? "";
-  const slashQuery = composerDraft.trimStart();
-  const slashSections =
-    slashQuery.startsWith("/")
-      ? buildSlashCommandSections(slashQuery, selectedRuntime)
-      : [];
-  const slashSuggestions = flattenSlashSections(slashSections);
-  const exactSlashCommand = findExactSlashCommand(slashQuery, selectedRuntime);
-  const activeSlashOptionCommand =
-    activeSlashFlow?.command ?? (exactSlashCommand?.submitMode === "pick-option" ? exactSlashCommand : undefined);
-  const showSlashMenu =
-    selectedSession?.status !== "running" &&
-    slashQuery.startsWith("/") &&
-    !slashQuery.includes("\n") &&
-    !activeSlashOptionCommand &&
-    slashQuery !== slashMenuSuppressedDraft &&
-    slashSuggestions.length > 0;
-  const selectedSlashCommand = showSlashMenu ? slashSuggestions[slashIndex % slashSuggestions.length] : undefined;
-  const slashOptions =
-    activeSlashOptionCommand?.kind === "model"
-      ? buildModelOptions(selectedRuntime)
-      : slashOptionsForCommand(activeSlashOptionCommand, selectedRuntime);
-  const showSlashOptionMenu =
-    selectedSession?.status !== "running" &&
-    Boolean(activeSlashOptionCommand) &&
-    slashOptions.length > 0;
-  const selectedSlashOption = showSlashOptionMenu ? slashOptions[slashOptionIndex % slashOptions.length] : undefined;
   const threadGroups = useMemo(
     () => (snapshot ? buildThreadGroups(snapshot) : []),
     [snapshot],
   );
+
+  const focusComposer = () => {
+    window.requestAnimationFrame(() => {
+      composerRef.current?.focus();
+    });
+  };
+
+  const openSettings = (workspaceId?: string, section?: SettingsSection) => {
+    if (!api) {
+      return;
+    }
+    const nextWorkspaceId =
+      workspaceId && rootWorkspaceOptions.some((workspace) => workspace.id === workspaceId)
+        ? workspaceId
+        : settingsWorkspace?.id || rootWorkspaceOptions[0]?.id || "";
+    if (nextWorkspaceId) {
+      setSettingsWorkspaceId(nextWorkspaceId);
+    }
+    if (section) {
+      setSettingsSection(section);
+    }
+    void updateSnapshot(api, setSnapshot, () => api.setActiveView("settings"));
+  };
+
+  const slashMenu = useSlashMenu({
+    composerDraft,
+    setComposerDraft,
+    selectedRuntime,
+    selectedSessionKey,
+    selectedSession,
+    selectedWorkspace,
+    isRunning: selectedSession?.status === "running",
+    api,
+    setSnapshot,
+    focusComposer,
+    openSettings,
+    updateSnapshot,
+  });
 
   useEffect(() => {
     if (!snapshot) {
@@ -317,38 +306,9 @@ export default function App() {
   }, [selectedWorkspace?.id, selectedWorkspace?.rootWorkspaceId]);
 
   useEffect(() => {
-    setSlashIndex(0);
-  }, [slashQuery]);
-
-  useEffect(() => {
-    if (slashMenuSuppressedDraft && slashQuery !== slashMenuSuppressedDraft) {
-      setSlashMenuSuppressedDraft("");
-    }
-  }, [slashMenuSuppressedDraft, slashQuery]);
-
-  useEffect(() => {
-    if (!slashQuery.startsWith("/")) {
-      if (!slashQuery && activeSlashFlow) {
-        return;
-      }
-      setActiveSlashFlow(undefined);
-      setSlashOptionIndex(0);
-      return;
-    }
-
-    if (activeSlashFlow?.command && slashQuery.trim().length > activeSlashFlow.command.command.length) {
-      setActiveSlashFlow(undefined);
-      setSlashOptionIndex(0);
-    }
-  }, [activeSlashFlow, slashQuery]);
-
-  useEffect(() => {
     setShowJumpToLatest(false);
     lastTranscriptMarkerRef.current = "";
     pinnedToBottomRef.current = true;
-    setActiveSlashFlow(undefined);
-    setSlashOptionIndex(0);
-    setSlashMenuSuppressedDraft("");
   }, [selectedSessionKey]);
 
   useEffect(() => {
@@ -468,20 +428,6 @@ export default function App() {
 
   const setActiveView = (view: AppView) => {
     void updateSnapshot(api, setSnapshot, () => api.setActiveView(view));
-  };
-
-  const openSettings = (workspaceId?: string, section?: SettingsSection) => {
-    const nextWorkspaceId =
-      workspaceId && rootWorkspaceOptions.some((workspace) => workspace.id === workspaceId)
-        ? workspaceId
-        : settingsWorkspace?.id || rootWorkspaceOptions[0]?.id || "";
-    if (nextWorkspaceId) {
-      setSettingsWorkspaceId(nextWorkspaceId);
-    }
-    if (section) {
-      setSettingsSection(section);
-    }
-    setActiveView("settings");
   };
 
   const openSkills = (workspaceId?: string) => {
@@ -605,7 +551,7 @@ export default function App() {
 
   const handleTrySkill = (command: string) => {
     void updateSnapshot(api, setSnapshot, () => api.setActiveView("threads"));
-    fillComposerFromSlash(command);
+    slashMenu.fillComposerFromSlash(command);
   };
 
   const handleSetNotificationPreferences = (preferences: Partial<DesktopAppState["notificationPreferences"]>) => {
@@ -728,139 +674,6 @@ export default function App() {
     setShowJumpToLatest(false);
   };
 
-  const focusComposer = () => {
-    window.requestAnimationFrame(() => {
-      composerRef.current?.focus();
-    });
-  };
-
-  const closeSlashOptionMenu = () => {
-    setActiveSlashFlow(undefined);
-    setSlashOptionIndex(0);
-  };
-
-  const resetSlashUi = () => {
-    closeSlashOptionMenu();
-    setSlashMenuSuppressedDraft("");
-  };
-
-  const fillComposerFromSlash = (draft: string, options?: { suppressMenu?: boolean }) => {
-    setComposerDraft(draft);
-    setSlashMenuSuppressedDraft(options?.suppressMenu ? draft : "");
-    focusComposer();
-  };
-
-  const openSlashOptionMenu = (command: ComposerSlashCommand) => {
-    setSlashMenuSuppressedDraft("");
-    setActiveSlashFlow({ command });
-    setSlashOptionIndex(0);
-    setComposerDraft("");
-    focusComposer();
-  };
-
-  const applySlashCommandSelection = (
-    command: ComposerSlashCommand,
-    mode: "click" | "tab" | "enter",
-  ) => {
-    const submitMode = command.submitMode ?? "prefill";
-    if (submitMode === "pick-option") {
-      openSlashOptionMenu(command);
-      return;
-    }
-
-    if (command.kind === "settings" || command.kind === "scoped-models") {
-      resetSlashUi();
-      setComposerDraft("");
-      openSettings(
-        selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id,
-        command.kind === "scoped-models" ? "models" : undefined,
-      );
-      return;
-    }
-
-    if (submitMode === "immediate") {
-      if (mode === "enter") {
-        resetSlashUi();
-        setComposerDraft(command.command);
-        void updateSnapshot(api, setSnapshot, () => api.submitComposer(command.command)).then((state) => {
-          setComposerDraft(state.composerDraft);
-        });
-        return;
-      }
-
-      closeSlashOptionMenu();
-      fillComposerFromSlash(command.command, { suppressMenu: true });
-      return;
-    }
-
-    closeSlashOptionMenu();
-    fillComposerFromSlash(command.template, { suppressMenu: true });
-  };
-
-  const applySlashOptionSelection = (option: ComposerSlashOption) => {
-    if (!activeSlashOptionCommand || !selectedWorkspace) {
-      return;
-    }
-
-    if (activeSlashOptionCommand.kind === "model") {
-      if (!selectedSession) {
-        return;
-      }
-      resetSlashUi();
-      setComposerDraft("");
-      const modelOption = option as Extract<ComposerSlashOption, { value: string }> & { providerId?: string };
-      const providerId = modelOption.providerId;
-      if (!providerId) {
-        return;
-      }
-      void updateSnapshot(api, setSnapshot, () =>
-        api.setSessionModel(selectedWorkspace.id, selectedSession.id, providerId, option.value),
-      ).then((state) => {
-        setComposerDraft(state.composerDraft);
-      });
-      return;
-    }
-
-    if (activeSlashOptionCommand.kind === "thinking") {
-      if (!selectedSession) {
-        return;
-      }
-      resetSlashUi();
-      setComposerDraft("");
-      void updateSnapshot(api, setSnapshot, () =>
-        api.setSessionThinkingLevel(
-          selectedWorkspace.id,
-          selectedSession.id,
-          option.value as NonNullable<RuntimeSnapshot["settings"]["defaultThinkingLevel"]>,
-        ),
-      ).then((state) => {
-        setComposerDraft(state.composerDraft);
-      });
-      return;
-    }
-
-    if (activeSlashOptionCommand.kind === "login") {
-      resetSlashUi();
-      setComposerDraft("");
-      void updateSnapshot(api, setSnapshot, () => api.loginProvider(selectedWorkspace.id, option.value)).then((state) => {
-        setComposerDraft(state.composerDraft);
-      });
-      return;
-    }
-
-    if (activeSlashOptionCommand.kind === "logout") {
-      resetSlashUi();
-      setComposerDraft("");
-      void updateSnapshot(api, setSnapshot, () => api.logoutProvider(selectedWorkspace.id, option.value)).then((state) => {
-        setComposerDraft(state.composerDraft);
-      });
-      return;
-    }
-
-    closeSlashOptionMenu();
-    fillComposerFromSlash(`${activeSlashOptionCommand.command} ${option.value}`);
-  };
-
   const runWorkspaceMenuAction = (
     event: ReactMouseEvent<HTMLElement>,
     action: () => void,
@@ -878,39 +691,7 @@ export default function App() {
       return;
     }
 
-    if ((showSlashMenu || showSlashOptionMenu) && event.key === "Escape") {
-      event.preventDefault();
-      resetSlashUi();
-      return;
-    }
-
-    if (showSlashOptionMenu && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-      event.preventDefault();
-      setSlashOptionIndex((current) => nextMenuIndex(current, event.key === "ArrowDown" ? 1 : -1, slashOptions.length));
-      return;
-    }
-
-    if (showSlashOptionMenu && (event.key === "Tab" || event.key === "Enter") && selectedSlashOption) {
-      event.preventDefault();
-      applySlashOptionSelection(selectedSlashOption);
-      return;
-    }
-
-    if (showSlashMenu && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-      event.preventDefault();
-      setSlashIndex((current) => nextMenuIndex(current, event.key === "ArrowDown" ? 1 : -1, slashSuggestions.length));
-      return;
-    }
-
-    if (showSlashMenu && event.key === "Tab" && selectedSlashCommand) {
-      event.preventDefault();
-      applySlashCommandSelection(selectedSlashCommand, "tab");
-      return;
-    }
-
-    if (showSlashMenu && event.key === "Enter" && selectedSlashCommand && !slashQuery.includes(" ")) {
-      event.preventDefault();
-      applySlashCommandSelection(selectedSlashCommand, "enter");
+    if (slashMenu.handleSlashKeyDown(event)) {
       return;
     }
 
@@ -1452,31 +1233,31 @@ export default function App() {
             </section>
 
             <ComposerPanel
-              activeSlashCommand={activeSlashFlow?.command}
-              activeSlashCommandMeta={describeActiveSlashFlow(activeSlashFlow?.command)}
+              activeSlashCommand={slashMenu.activeSlashFlow?.command}
+              activeSlashCommandMeta={describeActiveSlashFlow(slashMenu.activeSlashFlow?.command)}
               attachments={composerAttachments}
               composerDraft={composerDraft}
               composerRef={composerRef}
-              onClearSlashCommand={resetSlashUi}
+              onClearSlashCommand={slashMenu.resetSlashUi}
               onComposerKeyDown={handleComposerKeyDown}
               onPickImages={handlePickImages}
               onRemoveImage={handleRemoveImage}
               onSelectSlashCommand={(command) => {
-                applySlashCommandSelection(command, "click");
+                slashMenu.applySlashCommandSelection(command, "click");
               }}
               onSelectSlashOption={(option) => {
-                applySlashOptionSelection(option);
+                slashMenu.applySlashOptionSelection(option);
               }}
               onSubmit={submitComposerDraft}
               runningLabel={runningLabel}
               selectedSession={selectedSession}
-              selectedSlashCommand={activeSlashOptionCommand ?? selectedSlashCommand}
-              selectedSlashOption={selectedSlashOption}
+              selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
+              selectedSlashOption={slashMenu.selectedSlashOption}
               setComposerDraft={setComposerDraft}
-              showSlashOptionMenu={showSlashOptionMenu}
-              showSlashMenu={showSlashMenu}
-              slashOptions={slashOptions}
-              slashSections={slashSections}
+              showSlashOptionMenu={slashMenu.showSlashOptionMenu}
+              showSlashMenu={slashMenu.showSlashMenu}
+              slashOptions={slashMenu.slashOptions}
+              slashSections={slashMenu.slashSections}
             />
           </>
         ) : selectedWorkspace ? (
