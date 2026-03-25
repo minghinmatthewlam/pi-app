@@ -103,10 +103,7 @@ export function SkillsView({
         <div className="skills-layout">
           <div className="skills-grid" data-testid="skills-list">
             {filteredSkills.length === 0 ? (
-              <div className="empty-state">
-                <h2>No skills found</h2>
-                <p>Refresh discovery or create a new skill for this workspace.</p>
-              </div>
+              <SkillsEmptyState message="Refresh discovery or create a new skill for this workspace." />
             ) : (
               filteredSkills.map((skill) => (
                 <button
@@ -174,14 +171,20 @@ export function SkillsView({
                 </div>
               </>
             ) : (
-              <div className="empty-state">
-                <h2>No skills found</h2>
-                <p>Refresh runtime discovery to load workspace and user-level skills.</p>
-              </div>
+              <SkillsEmptyState message="Refresh runtime discovery to load workspace and user-level skills." />
             )}
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function SkillsEmptyState({ message }: { readonly message: string }) {
+  return (
+    <div className="empty-state">
+      <h2>No skills found</h2>
+      <p>{message}</p>
+    </div>
   );
 }
