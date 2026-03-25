@@ -12,10 +12,8 @@ import {
   type ComposerSlashOption,
 } from "../composer-commands";
 import type { PiDesktopApi } from "../ipc";
+import type { SettingsSection } from "../settings-view";
 import type { Dispatch, SetStateAction } from "react";
-
-/** Mirrors SettingsSection from settings-view (cannot import .tsx from .ts) */
-type SettingsSection = "general" | "providers" | "models" | "notifications";
 
 interface ActiveSlashFlow {
   readonly command: ComposerSlashCommand;

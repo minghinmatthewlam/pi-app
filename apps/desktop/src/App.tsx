@@ -19,6 +19,7 @@ import { SecondarySurface } from "./secondary-surface";
 import { NewThreadView } from "./new-thread-view";
 import { buildThreadGroups, type ThreadListEntry } from "./thread-groups";
 import { useSlashMenu } from "./hooks/use-slash-menu";
+import { useWorkspaceMenu } from "./hooks/use-workspace-menu";
 
 function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
@@ -123,11 +124,6 @@ function formatRunningLabel(startedAt: string | undefined): string {
 export default function App() {
   const [snapshot, setSnapshot] = useDesktopAppState();
   const [composerDraft, setComposerDraft] = useState("");
-  const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
-  const [workspaceRenameId, setWorkspaceRenameId] = useState<string | null>(null);
-  const [workspaceRenameDraft, setWorkspaceRenameDraft] = useState("");
-  const [expandedArchivedByWorkspace, setExpandedArchivedByWorkspace] = useState<Record<string, boolean>>({});
-  const [environmentMenuOpen, setEnvironmentMenuOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [settingsWorkspaceId, setSettingsWorkspaceId] = useState("");
   const [skillsWorkspaceId, setSkillsWorkspaceId] = useState("");
@@ -139,10 +135,6 @@ export default function App() {
   const lastTranscriptMarkerRef = useRef("");
   const pinnedToBottomRef = useRef(true);
   const previousActiveViewRef = useRef<AppView | null>(null);
-  const workspaceMenuWrapRef = useRef<HTMLSpanElement | null>(null);
-  const workspaceRenamePanelRef = useRef<HTMLFormElement | null>(null);
-  const workspaceRenameInputRef = useRef<HTMLInputElement | null>(null);
-  const environmentMenuRef = useRef<HTMLDivElement | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const api = window.piApp;
 
@@ -251,6 +243,12 @@ export default function App() {
     updateSnapshot,
   });
 
+  const wsMenu = useWorkspaceMenu({
+    api,
+    setSnapshot,
+    updateSnapshot,
+  });
+
   useEffect(() => {
     if (!snapshot) {
       return;
@@ -326,48 +324,6 @@ export default function App() {
 
     previousActiveViewRef.current = snapshot.activeView;
   }, [selectedSession, snapshot]);
-
-  useEffect(() => {
-    if (!workspaceRenameId) {
-      return undefined;
-    }
-
-    workspaceRenameInputRef.current?.focus();
-    workspaceRenameInputRef.current?.select();
-    return undefined;
-  }, [workspaceRenameId]);
-
-  useEffect(() => {
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        return;
-      }
-      const menuContains = workspaceMenuWrapRef.current?.contains(target) ?? false;
-      const renamePanelContains = workspaceRenamePanelRef.current?.contains(target) ?? false;
-      const environmentMenuContains = environmentMenuRef.current?.contains(target) ?? false;
-      if (!menuContains && !renamePanelContains && !environmentMenuContains) {
-        setWorkspaceMenuId(null);
-        setWorkspaceRenameId(null);
-        setEnvironmentMenuOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setWorkspaceMenuId(null);
-        setWorkspaceRenameId(null);
-        setEnvironmentMenuOpen(false);
-      }
-    };
-
-    window.addEventListener("mousedown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, []);
 
   useEffect(() => {
     if (!api || composerDraft === persistedComposerDraft) {
@@ -558,69 +514,8 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setNotificationPreferences(preferences));
   };
 
-  const handleWorkspaceRenameStart = (workspace: WorkspaceRecord) => {
-    setWorkspaceMenuId(null);
-    setWorkspaceRenameId(workspace.id);
-    setWorkspaceRenameDraft(workspace.name);
-  };
-
-  const handleWorkspaceRenameSubmit = (workspace: WorkspaceRecord) => {
-    const nextName = workspaceRenameDraft.trim();
-    setWorkspaceMenuId(null);
-    setWorkspaceRenameId(null);
-    if (!nextName || nextName === workspace.name) {
-      setWorkspaceRenameDraft("");
-      return;
-    }
-    setWorkspaceRenameDraft("");
-    void updateSnapshot(api, setSnapshot, () => api.renameWorkspace(workspace.id, nextName));
-  };
-
-  const handleWorkspaceRemove = (workspace: WorkspaceRecord) => {
-    const confirmed = window.confirm(`Remove ${workspace.name} from pi-gui? This will not delete any files.`);
-    setWorkspaceMenuId(null);
-    setWorkspaceRenameId(null);
-    if (!confirmed) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () => api.removeWorkspace(workspace.id));
-  };
-
-  const handleWorkspaceRenameCancel = () => {
-    setWorkspaceRenameId(null);
-    setWorkspaceRenameDraft("");
-  };
-
-  const handleCreateWorktree = (workspaceId: string, fromSessionWorkspaceId?: string, fromSessionId?: string) => {
-    setWorkspaceMenuId(null);
-    setEnvironmentMenuOpen(false);
-    void updateSnapshot(api, setSnapshot, () =>
-      api.createWorktree({ workspaceId, fromSessionWorkspaceId, fromSessionId }),
-    );
-  };
-
-  const handleRemoveWorktree = (workspaceId: string, worktree: WorktreeRecord) => {
-    const confirmed = window.confirm(`Remove worktree ${worktree.name}? This removes the git worktree from disk.`);
-    setEnvironmentMenuOpen(false);
-    if (!confirmed) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () =>
-      api.removeWorktree({ workspaceId, worktreeId: worktree.id }),
-    );
-  };
-
-  const handleSelectWorkspace = (workspaceId: string) => {
-    setEnvironmentMenuOpen(false);
-    void updateSnapshot(api, setSnapshot, () => api.selectWorkspace(workspaceId));
-  };
-
-  const setArchivedSectionOpen = (workspaceId: string, open: boolean) => {
-    setExpandedArchivedByWorkspace((current) => ({ ...current, [workspaceId]: open }));
-  };
-
   const handleArchiveSession = (rootWorkspaceId: string, target: { workspaceId: string; sessionId: string }) => {
-    setArchivedSectionOpen(rootWorkspaceId, true);
+    wsMenu.toggleArchived(rootWorkspaceId, true);
     void updateSnapshot(api, setSnapshot, () => api.archiveSession(target));
   };
 
@@ -672,16 +567,6 @@ export default function App() {
     pane.scrollTop = pane.scrollHeight;
     pinnedToBottomRef.current = true;
     setShowJumpToLatest(false);
-  };
-
-  const runWorkspaceMenuAction = (
-    event: ReactMouseEvent<HTMLElement>,
-    action: () => void,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setWorkspaceMenuId(null);
-    action();
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -893,13 +778,13 @@ export default function App() {
                   rootWorkspace.id === selectedWorkspace?.id ||
                   rootWorkspace.id === selectedWorkspace?.rootWorkspaceId;
                 const linkedWorktree = linkedWorktreeByWorkspaceId.get(rootWorkspace.id);
-                const archivedSectionOpen = expandedArchivedByWorkspace[rootWorkspace.id] ?? false;
+                const archivedSectionOpen = wsMenu.expandedArchivedByWorkspace[rootWorkspace.id] ?? false;
                 return (
                   <section key={rootWorkspace.id} className="workspace-group">
                     <div className={`workspace-row ${workspaceActive ? "workspace-row--active" : ""}`}>
                       <button
                         className="workspace-row__select"
-                        onClick={() => handleSelectWorkspace(rootWorkspace.id)}
+                        onClick={() => wsMenu.selectWorkspace(rootWorkspace.id)}
                         type="button"
                       >
                         <span className="workspace-row__icon" aria-hidden="true">
@@ -910,29 +795,29 @@ export default function App() {
                       </button>
                       <span
                         className="workspace-row__menu-wrap"
-                        ref={workspaceMenuId === rootWorkspace.id ? workspaceMenuWrapRef : undefined}
+                        ref={wsMenu.workspaceMenuId === rootWorkspace.id ? wsMenu.workspaceMenuWrapRef : undefined}
                       >
                         <button
                           aria-label={`Workspace actions for ${rootWorkspace.name}`}
                           aria-haspopup="menu"
                           className="icon-button workspace-row__menu-button"
-                          aria-expanded={workspaceMenuId === rootWorkspace.id}
+                          aria-expanded={wsMenu.workspaceMenuId === rootWorkspace.id}
                           type="button"
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            setWorkspaceMenuId((current) => (current === rootWorkspace.id ? null : rootWorkspace.id));
+                            wsMenu.openWorkspaceMenu(rootWorkspace.id);
                           }}
                         >
                           …
                         </button>
-                        {workspaceMenuId === rootWorkspace.id ? (
+                        {wsMenu.workspaceMenuId === rootWorkspace.id ? (
                           <div className="workspace-menu">
                             <button
                               className="workspace-menu__item"
                               type="button"
                               onClick={(event) =>
-                                runWorkspaceMenuAction(event, () => {
+                                wsMenu.runWorkspaceMenuAction(event, () => {
                                   void api.openWorkspaceInFinder(rootWorkspace.id);
                                 })
                               }
@@ -944,8 +829,8 @@ export default function App() {
                                 className="workspace-menu__item workspace-menu__item--danger"
                                 type="button"
                                 onClick={(event) =>
-                                  runWorkspaceMenuAction(event, () =>
-                                    handleRemoveWorktree(linkedWorktree.rootWorkspaceId || rootWorkspace.id, linkedWorktree),
+                                  wsMenu.runWorkspaceMenuAction(event, () =>
+                                    wsMenu.removeWorktree(linkedWorktree.rootWorkspaceId || rootWorkspace.id, linkedWorktree),
                                   )
                                 }
                               >
@@ -956,7 +841,7 @@ export default function App() {
                                 className="workspace-menu__item"
                                 type="button"
                                 onClick={(event) =>
-                                  runWorkspaceMenuAction(event, () => handleCreateWorktree(rootWorkspace.id))
+                                  wsMenu.runWorkspaceMenuAction(event, () => wsMenu.createWorktree(rootWorkspace.id))
                                 }
                               >
                                 Create permanent worktree
@@ -965,14 +850,14 @@ export default function App() {
                             <button
                               className="workspace-menu__item"
                               type="button"
-                              onClick={(event) => runWorkspaceMenuAction(event, () => handleWorkspaceRenameStart(rootWorkspace))}
+                              onClick={(event) => wsMenu.runWorkspaceMenuAction(event, () => wsMenu.startRename(rootWorkspace))}
                             >
                               Edit name
                             </button>
                             <button
                               className="workspace-menu__item workspace-menu__item--danger"
                               type="button"
-                              onClick={(event) => runWorkspaceMenuAction(event, () => handleWorkspaceRemove(rootWorkspace))}
+                              onClick={(event) => wsMenu.runWorkspaceMenuAction(event, () => wsMenu.removeWorkspace(rootWorkspace))}
                             >
                               Remove
                             </button>
@@ -980,32 +865,32 @@ export default function App() {
                         ) : null}
                       </span>
                     </div>
-                    {workspaceRenameId === rootWorkspace.id ? (
+                    {wsMenu.workspaceRenameId === rootWorkspace.id ? (
                       <form
                         className="workspace-rename"
-                        ref={workspaceRenamePanelRef}
+                        ref={wsMenu.workspaceRenamePanelRef}
                         onSubmit={(event) => {
                           event.preventDefault();
-                          handleWorkspaceRenameSubmit(rootWorkspace);
+                          wsMenu.submitRename(rootWorkspace);
                         }}
                       >
                         <input
                           aria-label={`Rename ${rootWorkspace.name}`}
                           className="workspace-rename__input"
-                          ref={workspaceRenameInputRef}
-                          value={workspaceRenameDraft}
+                          ref={wsMenu.workspaceRenameInputRef}
+                          value={wsMenu.workspaceRenameDraft}
                           onChange={(event) => {
-                            setWorkspaceRenameDraft(event.target.value);
+                            wsMenu.setWorkspaceRenameDraft(event.target.value);
                           }}
                           onKeyDown={(event) => {
                             if (event.key === "Escape") {
                               event.preventDefault();
-                              handleWorkspaceRenameCancel();
+                              wsMenu.cancelRename();
                             }
                           }}
                         />
                         <div className="workspace-rename__actions">
-                          <button className="workspace-rename__button" type="button" onClick={handleWorkspaceRenameCancel}>
+                          <button className="workspace-rename__button" type="button" onClick={wsMenu.cancelRename}>
                             Cancel
                           </button>
                           <button className="workspace-rename__button workspace-rename__button--primary" type="submit">
@@ -1039,7 +924,7 @@ export default function App() {
                           aria-expanded={archivedSectionOpen}
                           className="archived-thread-group__toggle"
                           type="button"
-                          onClick={() => setArchivedSectionOpen(rootWorkspace.id, !archivedSectionOpen)}
+                          onClick={() => wsMenu.toggleArchived(rootWorkspace.id, !archivedSectionOpen)}
                         >
                           <span
                             aria-hidden="true"
@@ -1092,22 +977,22 @@ export default function App() {
             {selectedWorkspace && snapshot.activeView === "threads" ? (
               <>
                 <span className="topbar__separator">/</span>
-                <div className="environment-picker" ref={environmentMenuRef}>
+                <div className="environment-picker" ref={wsMenu.environmentMenuRef}>
                   <button
-                    aria-expanded={environmentMenuOpen}
+                    aria-expanded={wsMenu.environmentMenuOpen}
                     aria-haspopup="menu"
                     className="environment-picker__button"
                     type="button"
-                    onClick={() => setEnvironmentMenuOpen((current) => !current)}
+                    onClick={() => wsMenu.setEnvironmentMenuOpen((current) => !current)}
                   >
                     {selectedWorkspace.kind === "worktree" ? selectedWorktree?.name ?? selectedWorkspace.name : "Local"}
                   </button>
-                  {environmentMenuOpen && rootWorkspace ? (
+                  {wsMenu.environmentMenuOpen && rootWorkspace ? (
                     <div className="workspace-menu environment-picker__menu">
                       <button
                         className="workspace-menu__item"
                         type="button"
-                        onClick={() => handleSelectWorkspace(rootWorkspace.id)}
+                        onClick={() => wsMenu.selectWorkspace(rootWorkspace.id)}
                       >
                         Local
                       </button>
@@ -1124,7 +1009,7 @@ export default function App() {
                             disabled={!worktreeSelectable}
                             onClick={() => {
                               if (worktreeSelectable && linkedWorkspace) {
-                                handleSelectWorkspace(linkedWorkspace.id);
+                                wsMenu.selectWorkspace(linkedWorkspace.id);
                               }
                             }}
                           >
