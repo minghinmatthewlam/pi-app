@@ -159,7 +159,7 @@ export class DesktopAppStore {
       });
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const synced = await this.driver.syncWorkspace(normalizedPath);
       const firstSession = synced.sessions[0];
       if (firstSession) {
@@ -173,9 +173,7 @@ export class DesktopAppStore {
         clearLastError: true,
         refreshWorktrees: true,
       });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   getWorkspacePath(workspaceId: string): string | undefined {
@@ -193,27 +191,23 @@ export class DesktopAppStore {
       return this.withError("Workspace name cannot be empty.");
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       await this.driver.renameWorkspace(workspaceId, nextName);
       return this.refreshState({
         selectedWorkspaceId: this.state.selectedWorkspaceId,
         selectedSessionId: this.state.selectedSessionId,
         clearLastError: true,
       });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async removeWorkspace(workspaceId: string): Promise<DesktopAppState> {
     await this.initialize();
 
-    try {
+    return this.withErrorHandling(async () => {
       await this.driver.removeWorkspace(workspaceId);
       return this.refreshState(fallbackSelectionAfterWorkspaceRemoval(this.state, workspaceId));
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async createWorktree(input: CreateWorktreeInput): Promise<DesktopAppState> {
@@ -223,7 +217,7 @@ export class DesktopAppStore {
       return this.withError(`Unknown workspace: ${input.workspaceId}`);
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const createOptions = this.defaultWorktreeOptions(
         rootWorkspace,
         input.fromSessionWorkspaceId,
@@ -245,9 +239,7 @@ export class DesktopAppStore {
         clearLastError: true,
         refreshWorktrees: false,
       });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async removeWorktree(input: RemoveWorktreeInput): Promise<DesktopAppState> {
@@ -257,7 +249,7 @@ export class DesktopAppStore {
       return this.withError(`Unknown workspace: ${input.workspaceId}`);
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const worktree = await this.catalogStore.worktrees.getWorktree(input.worktreeId);
       await this.worktreeManager.removeWorktree(rootWorkspace, input.worktreeId);
       if (worktree?.path) {
@@ -275,9 +267,7 @@ export class DesktopAppStore {
         clearLastError: true,
         refreshWorktrees: false,
       });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async selectWorkspace(workspaceId: string): Promise<DesktopAppState> {
@@ -299,33 +289,29 @@ export class DesktopAppStore {
   async selectSession(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
     await this.initialize();
 
-    try {
-      return this.refreshState({
+    return this.withErrorHandling(async () =>
+      this.refreshState({
         selectedWorkspaceId: target.workspaceId,
         selectedSessionId: target.sessionId,
         clearLastError: true,
         activeView: "threads",
-      });
-    } catch (error) {
-      return this.withError(error);
-    }
+      }),
+    );
   }
 
   async archiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
     await this.initialize();
 
-    try {
+    return this.withErrorHandling(async () => {
       await this.driver.archiveSession(toSessionRef(target));
       return this.refreshState(this.selectionAfterArchiving(target));
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async unarchiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
     await this.initialize();
 
-    try {
+    return this.withErrorHandling(async () => {
       await this.driver.unarchiveSession(toSessionRef(target));
       return this.refreshState({
         selectedWorkspaceId: this.state.selectedWorkspaceId,
@@ -336,9 +322,7 @@ export class DesktopAppStore {
         clearLastError: true,
         activeView: "threads",
       });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async startThread(input: StartThreadInput): Promise<DesktopAppState> {
@@ -348,7 +332,7 @@ export class DesktopAppStore {
       return this.withError(`Unknown workspace: ${input.rootWorkspaceId}`);
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       let targetWorkspace = rootWorkspace;
       if (input.environment === "new-worktree") {
         const worktreeOptions = this.defaultWorktreeOptions(rootWorkspace, undefined, undefined, input.prompt);
@@ -378,9 +362,7 @@ export class DesktopAppStore {
         refreshWorktrees: input.environment === "new-worktree",
         activeView: "threads",
       });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async setActiveView(activeView: AppView): Promise<DesktopAppState> {
@@ -406,13 +388,11 @@ export class DesktopAppStore {
       return this.emit();
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.refreshRuntime(workspace);
       this.runtimeByWorkspace.set(workspace.workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async setSessionModel(target: WorkspaceSessionTarget, provider: string, modelId: string): Promise<DesktopAppState> {
@@ -420,12 +400,10 @@ export class DesktopAppStore {
     const sessionRef = toSessionRef(target);
     const key = sessionKey(sessionRef);
 
-    try {
+    return this.withErrorHandling(async () => {
       await this.driver.setSessionModel(sessionRef, { provider, modelId });
       return this.finishComposerCommand(sessionRef, key, `Model set to ${provider}:${modelId}`);
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async setDefaultModel(workspaceId: string, provider: string, modelId: string): Promise<DesktopAppState> {
@@ -435,13 +413,11 @@ export class DesktopAppStore {
       return this.withError(`Unknown workspace: ${workspaceId}`);
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.setDefaultModel(workspace, { provider, modelId });
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async setDefaultThinkingLevel(
@@ -454,13 +430,11 @@ export class DesktopAppStore {
       return this.withError(`Unknown workspace: ${workspaceId}`);
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.setDefaultThinkingLevel(workspace, thinkingLevel);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async setSessionThinkingLevel(
@@ -469,12 +443,10 @@ export class DesktopAppStore {
   ): Promise<DesktopAppState> {
     await this.initialize();
     const key = sessionKey(sessionRef);
-    try {
+    return this.withErrorHandling(async () => {
       await this.driver.setSessionThinkingLevel(sessionRef, thinkingLevel);
       return this.finishComposerCommand(sessionRef, key, `Thinking set to ${thinkingLevel}`);
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async loginProvider(
@@ -488,13 +460,11 @@ export class DesktopAppStore {
       return this.withError(`Unknown workspace: ${workspaceId}`);
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.login(workspace, providerId, callbacks);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async logoutProvider(workspaceId: string, providerId: string): Promise<DesktopAppState> {
@@ -504,13 +474,11 @@ export class DesktopAppStore {
       return this.withError(`Unknown workspace: ${workspaceId}`);
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.logout(workspace, providerId);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async setEnableSkillCommands(workspaceId: string, enabled: boolean): Promise<DesktopAppState> {
@@ -520,13 +488,11 @@ export class DesktopAppStore {
       return this.withError(`Unknown workspace: ${workspaceId}`);
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.setEnableSkillCommands(workspace, enabled);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async setScopedModelPatterns(workspaceId: string, patterns: readonly string[]): Promise<DesktopAppState> {
@@ -536,13 +502,11 @@ export class DesktopAppStore {
       return this.withError(`Unknown workspace: ${workspaceId}`);
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.setScopedModelPatterns(workspace, patterns);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState> {
@@ -552,13 +516,11 @@ export class DesktopAppStore {
       return this.withError(`Unknown workspace: ${workspaceId}`);
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.setSkillEnabled(workspace, filePath, enabled);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async setNotificationPreferences(
@@ -585,7 +547,7 @@ export class DesktopAppStore {
       return this.withError(`Unknown workspace: ${input.workspaceId}`);
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       const snapshot = await this.driver.createSession(workspace, {
         title: input.title?.trim() || "New thread",
       });
@@ -601,9 +563,7 @@ export class DesktopAppStore {
         clearLastError: true,
         activeView: "threads",
       });
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   async updateComposerDraft(composerDraft: string): Promise<DesktopAppState> {
@@ -717,7 +677,7 @@ export class DesktopAppStore {
       return this.emit();
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       await this.driver.cancelCurrentRun(sessionRef);
       clearActiveAssistantMessage(this.sessionState.activeAssistantMessageBySession, sessionRef);
       this.sessionState.sessionErrorsBySession.delete(sessionKey(sessionRef));
@@ -728,9 +688,7 @@ export class DesktopAppStore {
       };
       this.schedulePersistUiState();
       return this.emit();
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   private async initializeInternal(): Promise<void> {
@@ -929,12 +887,10 @@ export class DesktopAppStore {
       return this.emit();
     }
 
-    try {
+    return this.withErrorHandling(async () => {
       await this.driver.syncWorkspace(workspace.path, workspace.name);
       return this.refreshState(refreshOptions);
-    } catch (error) {
-      return this.withError(error);
-    }
+    });
   }
 
   private async ensureSessionReady(sessionRef: SessionRef): Promise<void> {
@@ -1347,6 +1303,14 @@ export class DesktopAppStore {
     };
     await this.persistUiState();
     return this.emit();
+  }
+
+  private async withErrorHandling(fn: () => Promise<DesktopAppState>): Promise<DesktopAppState> {
+    try {
+      return await fn();
+    } catch (error) {
+      return this.withError(error);
+    }
   }
 
   private markSelectedSessionViewedIfVisible(): void {
