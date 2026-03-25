@@ -1,0 +1,340 @@
+import { sessionKey } from "@pi-gui/pi-sdk-driver";
+import type { SessionRef } from "@pi-gui/session-driver";
+import type { ComposerImageAttachment, DesktopAppState, WorkspaceSessionTarget } from "../src/desktop-state";
+import { toSessionRef } from "./app-store-utils";
+import {
+  formatSessionConfigStatus,
+  incompleteComposerCommandMessage,
+  parseComposerCommand,
+} from "../src/composer-commands";
+import { appendUserMessage, clearActiveAssistantMessage } from "./app-store-timeline";
+import {
+  cloneComposerImageAttachments,
+  cloneTranscriptMessage,
+  makeActivityItem,
+  previewFromTranscript,
+  toSessionAttachments,
+  toTranscriptAttachments,
+} from "./app-store-utils";
+import type { AppStoreInternals } from "./app-store-internals";
+
+/* ── Public methods ─────────────────────────────────────── */
+
+export async function updateComposerDraft(
+  store: AppStoreInternals,
+  composerDraft: string,
+): Promise<DesktopAppState> {
+  await store.initialize();
+  const sessionRef = store.selectedSessionRef();
+  if (sessionRef) {
+    const key = sessionKey(sessionRef);
+    if (composerDraft) {
+      store.sessionState.composerDraftsBySession.set(key, composerDraft);
+    } else {
+      store.sessionState.composerDraftsBySession.delete(key);
+    }
+  }
+  store.state = {
+    ...store.state,
+    composerDraft,
+    lastError: undefined,
+    revision: store.state.revision + 1,
+  };
+  await store.persistUiState();
+  return store.emit();
+}
+
+export async function addComposerImages(
+  store: AppStoreInternals,
+  attachments: readonly ComposerImageAttachment[],
+): Promise<DesktopAppState> {
+  await store.initialize();
+  const sessionRef = store.selectedSessionRef();
+  if (!sessionRef || attachments.length === 0) {
+    return store.emit();
+  }
+
+  const key = sessionKey(sessionRef);
+  const existing = store.sessionState.composerAttachmentsBySession.get(key) ?? [];
+  const next = [...existing, ...attachments];
+  store.sessionState.composerAttachmentsBySession.set(key, next);
+  store.state = {
+    ...store.state,
+    composerAttachments: next,
+    revision: store.state.revision + 1,
+  };
+  await store.persistComposerAttachments(key, next);
+  return store.emit();
+}
+
+export async function removeComposerImage(
+  store: AppStoreInternals,
+  attachmentId: string,
+): Promise<DesktopAppState> {
+  await store.initialize();
+  const sessionRef = store.selectedSessionRef();
+  if (!sessionRef) {
+    return store.emit();
+  }
+
+  const key = sessionKey(sessionRef);
+  const existing = store.sessionState.composerAttachmentsBySession.get(key) ?? [];
+  const next = existing.filter((attachment) => attachment.id !== attachmentId);
+  if (next.length > 0) {
+    store.sessionState.composerAttachmentsBySession.set(key, next);
+  } else {
+    store.sessionState.composerAttachmentsBySession.delete(key);
+  }
+  store.state = {
+    ...store.state,
+    composerAttachments: next,
+    revision: store.state.revision + 1,
+  };
+  await store.persistComposerAttachments(key, next);
+  return store.emit();
+}
+
+export async function submitComposer(store: AppStoreInternals, textInput: string): Promise<DesktopAppState> {
+  await store.initialize();
+  const text = textInput.trim();
+  const sessionRef = store.selectedSessionRef();
+  const attachments = sessionRef
+    ? store.sessionState.composerAttachmentsBySession.get(sessionKey(sessionRef)) ?? []
+    : [];
+  if (!text && attachments.length === 0) {
+    return store.emit();
+  }
+  if (!sessionRef) {
+    return store.withError("Create or select a session before sending a message.");
+  }
+
+  if (text.startsWith("/")) {
+    const handled = await runComposerCommand(store, sessionRef, text);
+    if (handled) {
+      return handled;
+    }
+  }
+
+  const key = sessionKey(sessionRef);
+  try {
+    await sendMessageToSession(store, sessionRef, text, attachments);
+    return store.refreshState({
+      clearLastError: true,
+    });
+  } catch (error) {
+    if (textInput) {
+      store.sessionState.composerDraftsBySession.set(key, textInput);
+    }
+    if (attachments.length > 0) {
+      store.sessionState.composerAttachmentsBySession.set(key, cloneComposerImageAttachments(attachments));
+      await store.persistComposerAttachments(key, attachments);
+    }
+    return store.withError(error);
+  }
+}
+
+export async function setSessionModel(
+  store: AppStoreInternals,
+  target: WorkspaceSessionTarget,
+  provider: string,
+  modelId: string,
+): Promise<DesktopAppState> {
+  await store.initialize();
+  const sessionRef = toSessionRef(target);
+  const key = sessionKey(sessionRef);
+
+  return store.withErrorHandling(async () => {
+    await store.driver.setSessionModel(sessionRef, { provider, modelId });
+    return finishComposerCommand(store, sessionRef, key, `Model set to ${provider}:${modelId}`);
+  });
+}
+
+export async function setSessionThinkingLevel(
+  store: AppStoreInternals,
+  sessionRef: SessionRef,
+  thinkingLevel: string,
+): Promise<DesktopAppState> {
+  await store.initialize();
+  const key = sessionKey(sessionRef);
+  return store.withErrorHandling(async () => {
+    await store.driver.setSessionThinkingLevel(sessionRef, thinkingLevel);
+    return finishComposerCommand(store, sessionRef, key, `Thinking set to ${thinkingLevel}`);
+  });
+}
+
+export async function cancelCurrentRun(store: AppStoreInternals): Promise<DesktopAppState> {
+  await store.initialize();
+  const sessionRef = store.selectedSessionRef();
+  if (!sessionRef) {
+    return store.emit();
+  }
+
+  return store.withErrorHandling(async () => {
+    await store.driver.cancelCurrentRun(sessionRef);
+    clearActiveAssistantMessage(store.sessionState.activeAssistantMessageBySession, sessionRef);
+    store.sessionState.sessionErrorsBySession.delete(sessionKey(sessionRef));
+    store.state = {
+      ...store.state,
+      lastError: undefined,
+      revision: store.state.revision + 1,
+    };
+    store.schedulePersistUiState();
+    return store.emit();
+  });
+}
+
+/* ── Internal helpers ───────────────────────────────────── */
+
+export async function sendMessageToSession(
+  store: AppStoreInternals,
+  sessionRef: SessionRef,
+  text: string,
+  attachments: readonly ComposerImageAttachment[],
+): Promise<void> {
+  const key = sessionKey(sessionRef);
+  if (!store.sessionState.loadedTranscriptKeys.has(key)) {
+    await store.ensureSessionReady(sessionRef);
+  }
+  if (store.sessionFromState(sessionRef)?.archivedAt) {
+    await store.driver.unarchiveSession(sessionRef);
+  }
+  appendUserMessage(
+    store.sessionState.transcriptCache,
+    sessionRef,
+    text,
+    toTranscriptAttachments(attachments),
+  );
+  store.persistTranscriptCacheForSession(sessionRef);
+  clearActiveAssistantMessage(store.sessionState.activeAssistantMessageBySession, sessionRef);
+  store.sessionState.sessionErrorsBySession.delete(key);
+  store.sessionState.composerDraftsBySession.delete(key);
+  store.sessionState.composerAttachmentsBySession.delete(key);
+  await store.persistComposerAttachments(key, []);
+  try {
+    await store.driver.sendUserMessage(sessionRef, {
+      text,
+      attachments: toSessionAttachments(attachments),
+    });
+  } catch (error) {
+    const transcript = store.sessionState.transcriptCache.get(key) ?? [];
+    store.sessionState.transcriptCache.set(key, transcript.slice(0, -1));
+    store.persistTranscriptCacheForSession(sessionRef);
+    throw error;
+  }
+}
+
+async function runComposerCommand(
+  store: AppStoreInternals,
+  sessionRef: SessionRef,
+  commandText: string,
+): Promise<DesktopAppState | undefined> {
+  const parsed = parseComposerCommand(commandText);
+  if (!parsed) {
+    const message = incompleteComposerCommandMessage(commandText);
+    if (message) {
+      return store.withError(message);
+    }
+    return undefined;
+  }
+
+  const key = sessionKey(sessionRef);
+
+  if (parsed.type === "model") {
+    await store.driver.setSessionModel(sessionRef, {
+      provider: parsed.provider,
+      modelId: parsed.modelId,
+    });
+    return finishComposerCommand(store, sessionRef, key, `Model set to ${parsed.provider}:${parsed.modelId}`);
+  }
+
+  if (parsed.type === "thinking") {
+    await store.driver.setSessionThinkingLevel(sessionRef, parsed.thinkingLevel);
+    return finishComposerCommand(store, sessionRef, key, `Thinking set to ${parsed.thinkingLevel}`);
+  }
+
+  if (parsed.type === "status") {
+    return finishComposerCommand(
+      store,
+      sessionRef,
+      key,
+      formatSessionConfigStatus(store.sessionState.sessionConfigBySession.get(key)),
+    );
+  }
+
+  if (parsed.type === "session") {
+    const workspace = store.state.workspaces.find((entry) => entry.id === sessionRef.workspaceId);
+    const session = workspace?.sessions.find((entry) => entry.id === sessionRef.sessionId);
+    const parts = [
+      `Session ${session?.title ?? sessionRef.sessionId}`,
+      `ID ${sessionRef.sessionId}`,
+      workspace ? `Workspace ${workspace.name}` : undefined,
+      session ? `Status ${session.status}` : undefined,
+    ].filter(Boolean);
+    return finishComposerCommand(store, sessionRef, key, parts.join(" · "));
+  }
+
+  if (parsed.type === "name") {
+    await store.driver.renameSession(sessionRef, parsed.title);
+    return finishComposerCommand(store, sessionRef, key, `Session renamed to ${parsed.title}`);
+  }
+
+  if (parsed.type === "compact") {
+    await store.driver.compactSession(sessionRef, parsed.customInstructions);
+    await store.reloadTranscriptFromDriver(sessionRef);
+    return finishComposerCommand(store, sessionRef, key, "Compacted session context");
+  }
+
+  if (parsed.type === "reload") {
+    await store.driver.reloadSession(sessionRef);
+    return finishComposerCommand(store, sessionRef, key, "Reloaded session resources");
+  }
+
+  return store.withError(`Unsupported slash command: ${commandText}`);
+}
+
+function appendLocalActivity(store: AppStoreInternals, sessionRef: SessionRef, label: string): void {
+  const key = sessionKey(sessionRef);
+  const transcript = [...(store.sessionState.transcriptCache.get(key) ?? [])];
+  transcript.push(makeActivityItem(label));
+  store.sessionState.transcriptCache.set(key, transcript);
+  store.persistTranscriptCacheForSession(sessionRef);
+}
+
+function finishComposerCommand(
+  store: AppStoreInternals,
+  sessionRef: SessionRef,
+  key: string,
+  label: string,
+): DesktopAppState {
+  store.sessionState.composerDraftsBySession.delete(key);
+  store.sessionState.composerAttachmentsBySession.delete(key);
+  appendLocalActivity(store, sessionRef, label);
+  const transcript = (store.sessionState.transcriptCache.get(key) ?? []).map(cloneTranscriptMessage);
+  const preview = previewFromTranscript(transcript);
+  store.state = {
+    ...store.state,
+    workspaces: store.state.workspaces.map((workspace) =>
+      workspace.id === sessionRef.workspaceId
+        ? {
+            ...workspace,
+            sessions: workspace.sessions.map((session) =>
+              session.id === sessionRef.sessionId
+                ? {
+                    ...session,
+                    preview: preview ?? session.preview,
+                    config: store.sessionState.sessionConfigBySession.get(key),
+                    transcript,
+                  }
+                : session,
+            ),
+          }
+        : workspace,
+    ),
+    composerDraft: "",
+    composerAttachments: [],
+    lastError: undefined,
+    revision: store.state.revision + 1,
+  };
+  store.schedulePersistUiState();
+  return store.emit();
+}
