@@ -109,4 +109,15 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.stageFile, workspaceId, filePath) as Promise<void>,
   toggleWindowMaximize: () => ipcRenderer.invoke(desktopIpc.toggleWindowMaximize) as Promise<void>,
   openExternal: (url: string) => ipcRenderer.invoke(desktopIpc.openExternal, url) as Promise<void>,
+  getThemeMode: () => ipcRenderer.invoke("pi-gui:get-theme-mode") as Promise<"system" | "light" | "dark">,
+  getResolvedTheme: () => ipcRenderer.invoke("pi-gui:get-resolved-theme") as Promise<"light" | "dark">,
+  setThemeMode: (mode: "system" | "light" | "dark") =>
+    ipcRenderer.invoke("pi-gui:set-theme-mode", mode) as Promise<string>,
+  onThemeChanged: (callback: (theme: "light" | "dark") => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, theme: "light" | "dark") => callback(theme);
+    ipcRenderer.on("pi-gui:theme-changed", handler);
+    return () => {
+      ipcRenderer.removeListener("pi-gui:theme-changed", handler);
+    };
+  },
 });

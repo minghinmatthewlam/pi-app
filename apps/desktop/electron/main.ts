@@ -7,6 +7,8 @@ import { DesktopAppStore } from "./app-store";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
 import { listWorkspaceFiles } from "./app-store-files";
 import { NotificationManager } from "./notification-manager";
+import { ThemeManager } from "./theme-manager";
+import type { ThemeMode } from "./theme-manager";
 import { desktopIpc, getDesktopCommandFromShortcut } from "../src/ipc";
 import type {
   ComposerImageAttachment,
@@ -19,6 +21,7 @@ import type {
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 let store: DesktopAppStore;
+const themeManager = new ThemeManager();
 let mainWindow: BrowserWindow | null = null;
 let stopPublishingState: (() => void) | undefined;
 let stopNotifications: (() => void) | undefined;
@@ -108,6 +111,12 @@ app.whenReady().then(async () => {
   stopNotifications = new NotificationManager(store, () => mainWindow).start();
 
   ipcMain.handle(desktopIpc.ping, () => "pi desktop ready");
+  ipcMain.handle("pi-gui:get-theme-mode", () => themeManager.getMode());
+  ipcMain.handle("pi-gui:get-resolved-theme", () => themeManager.getResolvedTheme());
+  ipcMain.handle("pi-gui:set-theme-mode", (_event, mode: ThemeMode) => {
+    themeManager.setMode(mode);
+    return mode;
+  });
   ipcMain.handle(desktopIpc.openExternal, (_event, url: string) => {
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol)) {
@@ -272,11 +281,13 @@ app.whenReady().then(async () => {
   });
 
   mainWindow = createWindow();
+  themeManager.setWindow(mainWindow);
   attachStatePublisher(mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createWindow();
+      themeManager.setWindow(mainWindow);
       attachStatePublisher(mainWindow);
     }
   });

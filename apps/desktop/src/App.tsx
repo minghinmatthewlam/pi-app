@@ -115,6 +115,7 @@ export default function App() {
   const [newThreadRootWorkspaceId, setNewThreadRootWorkspaceId] = useState("");
   const [newThreadEnvironment, setNewThreadEnvironment] = useState<"local" | "new-worktree">("local");
   const [newThreadPrompt, setNewThreadPrompt] = useState("");
+  const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const lastTranscriptMarkerRef = useRef("");
@@ -124,6 +125,25 @@ export default function App() {
   const [showDiffPanel, setShowDiffPanel] = useState(false);
   const threadSearch = useThreadSearch(timelinePaneRef);
   const api = window.piApp;
+
+  useEffect(() => {
+    const piApi = window.piApp;
+    if (!piApi) return;
+
+    void piApi.getResolvedTheme().then((theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+    });
+
+    void piApi.getThemeMode().then((mode) => {
+      setThemeMode(mode);
+    });
+
+    const unsub = piApi.onThemeChanged((theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+    });
+
+    return unsub;
+  }, []);
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
@@ -595,6 +615,12 @@ export default function App() {
     slashMenu.fillComposerFromSlash(command);
   };
 
+  const handleSetThemeMode = (mode: "system" | "light" | "dark") => {
+    if (!api) return;
+    setThemeMode(mode);
+    void api.setThemeMode(mode);
+  };
+
   const handleSetNotificationPreferences = (preferences: Partial<DesktopAppState["notificationPreferences"]>) => {
     void updateSnapshot(api, setSnapshot, () => api.setNotificationPreferences(preferences));
   };
@@ -682,6 +708,7 @@ export default function App() {
   };
 
   const settingsNav = [
+    { id: "appearance", label: "Appearance" },
     { id: "general", label: "General" },
     { id: "providers", label: "Providers" },
     { id: "models", label: "Models" },
@@ -720,12 +747,14 @@ export default function App() {
           runtime={settingsRuntime}
           section={settingsSection}
           notificationPreferences={snapshot.notificationPreferences}
+          themeMode={themeMode}
           onLoginProvider={handleLoginProvider}
           onLogoutProvider={handleLogoutProvider}
           onRefresh={handleRefreshRuntime}
           onSetDefaultModel={handleSetDefaultModel}
           onSetNotificationPreferences={handleSetNotificationPreferences}
           onSetScopedModelPatterns={handleSetScopedModelPatterns}
+          onSetThemeMode={handleSetThemeMode}
           onSetThinkingLevel={handleSetThinkingLevel}
           onToggleSkillCommands={handleToggleSkillCommands}
         />

@@ -28,6 +28,29 @@
     sans-serif;
 }
 
+:root.dark {
+  color-scheme: dark;
+  --window: #1a1b1e;
+  --sidebar: #202124;
+  --main: #1e1f22;
+  --surface: #2b2d31;
+  --surface-muted: #232428;
+  --line: #3a3c42;
+  --line-strong: #4a4d55;
+  --text: #d4d4d8;
+  --text-strong: #f4f4f5;
+  --muted: #8b8d94;
+  --muted-strong: #9ea0a8;
+  --muted-soft: #6b6e76;
+  --muted-subtle: #5a5d65;
+  --muted-icon: #7a7d85;
+  --muted-path: #6e727a;
+  --muted-settings: #7b7e86;
+  --accent: #7c6bf5;
+  --error: #e05467;
+  --error-ink: #f87171;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -201,4 +224,28 @@ svg {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Dark mode overrides for hardcoded light colors */
+:root.dark .empty-state {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+:root.dark .button--ghost {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:root.dark .button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+:root.dark .button--primary:hover:not(:disabled) {
+  background: #d4d4d8;
+  border-color: #d4d4d8;
+}
+
+:root.dark .meta-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--line);
 }

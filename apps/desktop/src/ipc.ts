@@ -150,4 +150,8 @@ export interface PiDesktopApi {
   stageFile(workspaceId: string, filePath: string): Promise<void>;
   toggleWindowMaximize(): Promise<void>;
   openExternal(url: string): Promise<void>;
+  getThemeMode(): Promise<"system" | "light" | "dark">;
+  getResolvedTheme(): Promise<"light" | "dark">;
+  setThemeMode(mode: "system" | "light" | "dark"): Promise<string>;
+  onThemeChanged(callback: (theme: "light" | "dark") => void): () => void;
 }

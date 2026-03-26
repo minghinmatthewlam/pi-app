@@ -622,3 +622,75 @@
     min-height: 360px;
   }
 }
+
+/* ---------- Dark mode overrides ---------- */
+
+:root.dark .sidebar {
+  background: var(--sidebar);
+  border-right-color: var(--line);
+}
+
+:root.dark .sidebar__nav-item--active {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--line);
+}
+
+:root.dark .sidebar__new {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--line);
+}
+
+:root.dark .workspace-row:hover,
+:root.dark .session-row:hover,
+:root.dark .icon-button:hover:not(:disabled),
+:root.dark .sidebar__settings:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:root.dark .session-row--active {
+  background: var(--surface);
+  border-color: var(--line);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+:root.dark .session-row__status--running {
+  border-color: rgba(255, 255, 255, 0.12);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+}
+
+:root.dark .workspace-menu {
+  border-color: var(--line);
+  background: rgba(43, 45, 49, 0.96);
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.4);
+}
+
+:root.dark .workspace-rename {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+:root.dark .workspace-rename__input {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+:root.dark .workspace-rename__button {
+  border-color: var(--line);
+  background: var(--surface-muted);
+}
+
+:root.dark .workspace-rename__button--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+:root.dark .sidebar__footer {
+  border-top-color: var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+:root.dark .archived-thread-group__toggle:hover {
+  background: rgba(255, 255, 255, 0.04);
+}

@@ -1,6 +1,7 @@
 import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { NotificationPreferences, WorkspaceRecord } from "./desktop-state";
 import { RefreshIcon } from "./icons";
+import { SettingsAppearanceSection } from "./settings-appearance-section";
 import { SettingsGeneralSection } from "./settings-general-section";
 import { SettingsModelsSection } from "./settings-models-section";
 import { SettingsNotificationsSection } from "./settings-notifications-section";
@@ -14,6 +15,7 @@ interface SettingsViewProps {
   readonly runtime?: RuntimeSnapshot;
   readonly section: SettingsSection;
   readonly notificationPreferences: NotificationPreferences;
+  readonly themeMode: "system" | "light" | "dark";
   readonly onRefresh: () => void;
   readonly onSetDefaultModel: (provider: string, modelId: string) => void;
   readonly onSetThinkingLevel: (thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"]) => void;
@@ -22,6 +24,7 @@ interface SettingsViewProps {
   readonly onLoginProvider: (providerId: string) => void;
   readonly onLogoutProvider: (providerId: string) => void;
   readonly onSetNotificationPreferences: (preferences: Partial<NotificationPreferences>) => void;
+  readonly onSetThemeMode: (mode: "system" | "light" | "dark") => void;
 }
 
 export function SettingsView({
@@ -29,6 +32,7 @@ export function SettingsView({
   runtime,
   section,
   notificationPreferences,
+  themeMode,
   onRefresh,
   onSetDefaultModel,
   onSetThinkingLevel,
@@ -37,8 +41,9 @@ export function SettingsView({
   onLoginProvider,
   onLogoutProvider,
   onSetNotificationPreferences,
+  onSetThemeMode,
 }: SettingsViewProps) {
-  if (!workspace && section !== "general" && section !== "notifications") {
+  if (!workspace && section !== "general" && section !== "notifications" && section !== "appearance") {
     return (
       <section className="canvas canvas--empty">
         <div className="empty-panel">
@@ -68,6 +73,13 @@ export function SettingsView({
         </header>
 
         <div className="settings-grid">
+          {section === "appearance" ? (
+            <SettingsAppearanceSection
+              themeMode={themeMode}
+              onSetThemeMode={onSetThemeMode}
+            />
+          ) : null}
+
           {section === "general" ? (
             <SettingsGeneralSection
               runtime={runtime}
