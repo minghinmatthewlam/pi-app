@@ -1,7 +1,7 @@
 import { type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type RefObject, type SetStateAction } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ComposerImageAttachment, SessionRecord } from "./desktop-state";
-import { ArrowUpIcon, ModelIcon, PlusIcon, ReasoningIcon, SkillIcon, SparkIcon, StatusIcon, StopSquareIcon } from "./icons";
+import { ArrowUpIcon, ModelIcon, PlusIcon, ReasoningIcon, SettingsIcon, SkillIcon, SparkIcon, StatusIcon, StopSquareIcon } from "./icons";
 import type { ComposerSlashCommand, ComposerSlashCommandSection, ComposerSlashOption } from "./composer-commands";
 import { ModelSelector } from "./model-selector";
 
@@ -104,26 +104,26 @@ export function ComposerPanel({
                     {section.title ? (
                       <div className={`slash-menu__section-title slash-menu__section-title--${section.id}`}>
                         <span className="slash-menu__section-icon" aria-hidden="true">
-                          {section.id === "skills" ? <SkillIcon /> : <SparkIcon />}
+                          {section.id === "runtime" ? <SparkIcon /> : <SettingsIcon />}
                         </span>
                         <span>{section.title}</span>
                       </div>
                     ) : null}
                     {section.items.map((command) => (
                       <button
-                        className={`slash-menu__item ${command.section === "skills" ? "slash-menu__item--skill" : ""} ${selectedSlashCommand?.command === command.command ? "slash-menu__item--active" : ""}`}
-                        key={`${section.id}:${command.command}`}
+                        className={`slash-menu__item ${command.section === "runtime" ? "slash-menu__item--skill" : ""} ${selectedSlashCommand?.id === command.id ? "slash-menu__item--active" : ""}`}
+                        key={command.id}
                         type="button"
                         onClick={() => onSelectSlashCommand(command)}
                       >
                         <span className="slash-menu__icon" aria-hidden="true">
                           <SlashCommandIcon command={command} />
                         </span>
-                        {command.section === "skills" ? (
+                        {command.section === "runtime" ? (
                           <span className="slash-menu__content slash-menu__content--skill">
                             <span className="slash-menu__line">
                               <span className="slash-menu__title">{command.title}</span>
-                              <span className="slash-menu__skill-badge">{skillSourceLabel(command)}</span>
+                              {command.sourceLabel ? <span className="slash-menu__skill-badge">{command.sourceLabel}</span> : null}
                             </span>
                             <span className="slash-menu__description">{command.description}</span>
                             <span className="slash-menu__meta">
@@ -261,24 +261,16 @@ export function ComposerPanel({
   );
 }
 
-function skillSourceLabel(command: ComposerSlashCommand): string {
-  const source = command.skill?.source?.trim();
-  if (!source) {
-    return "Skill";
-  }
-  return source.charAt(0).toUpperCase() + source.slice(1);
-}
-
 function SlashCommandIcon({ command }: { readonly command: ComposerSlashCommand }) {
   switch (command.kind) {
+    case "runtime":
+      return command.runtimeCommand?.source === "skill" ? <SkillIcon /> : <SparkIcon />;
     case "model":
       return <ModelIcon />;
     case "thinking":
       return <ReasoningIcon />;
     case "status":
       return <StatusIcon />;
-    case "skill":
-      return <SkillIcon />;
     default:
       return <SparkIcon />;
   }

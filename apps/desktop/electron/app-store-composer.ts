@@ -4,6 +4,7 @@ import type { ComposerImageAttachment, DesktopAppState, WorkspaceSessionTarget }
 import { toSessionRef } from "./app-store-utils";
 import {
   formatSessionConfigStatus,
+  hasRuntimeSlashCommand,
   incompleteComposerCommandMessage,
   parseComposerCommand,
 } from "../src/composer-commands";
@@ -108,7 +109,11 @@ export async function submitComposer(store: AppStoreInternals, textInput: string
     return store.withError("Create or select a session before sending a message.");
   }
 
-  if (text.startsWith("/")) {
+  const runtime = store.runtimeByWorkspace.get(sessionRef.workspaceId);
+  const sessionCommands = store.sessionState.sessionCommandsBySession.get(sessionKey(sessionRef)) ?? [];
+  const runtimeSlashCommand = hasRuntimeSlashCommand(text, runtime, sessionCommands);
+
+  if (text.startsWith("/") && !runtimeSlashCommand) {
     const handled = await runComposerCommand(store, sessionRef, text);
     if (handled) {
       return handled;
@@ -118,6 +123,9 @@ export async function submitComposer(store: AppStoreInternals, textInput: string
   const key = sessionKey(sessionRef);
   try {
     await sendMessageToSession(store, sessionRef, text, attachments);
+    if (runtimeSlashCommand) {
+      await store.refreshSessionCommandsFor(sessionRef);
+    }
     return store.refreshState({
       clearLastError: true,
     });
@@ -286,6 +294,7 @@ async function runComposerCommand(
 
   if (parsed.type === "reload") {
     await store.driver.reloadSession(sessionRef);
+    await store.refreshSessionCommandsFor(sessionRef);
     return finishComposerCommand(store, sessionRef, key, "Reloaded session resources");
   }
 

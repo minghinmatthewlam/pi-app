@@ -1053,8 +1053,12 @@
   font-weight: 560;
 }
 
-.slash-menu__section-title--skills {
+.slash-menu__section-title--runtime {
   color: var(--text-strong);
+}
+
+.slash-menu__section-title--host {
+  color: var(--muted-strong);
 }
 
 .slash-menu__section-icon {
@@ -1779,6 +1783,167 @@
   gap: 8px;
 }
 
+.extension-detail__tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.extension-detail__diagnostics {
+  display: grid;
+  gap: 8px;
+}
+
+.extension-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #dfe4ee;
+  background: #f9fbfe;
+}
+
+.extension-status-strip__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.extension-status-strip__label {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eef2f8;
+  color: var(--muted-soft);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.extension-widget-rail {
+  margin: 0 28px 14px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  border: 1px solid #dfe4ee;
+  background: #fff;
+}
+
+.extension-widget-rail__title {
+  margin-bottom: 10px;
+  color: var(--muted-soft);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.extension-widget-rail__list {
+  display: grid;
+  gap: 10px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.extension-widget-card {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f7f9fc;
+  border: 1px solid #e5eaf3;
+}
+
+.extension-widget-card__key {
+  margin-bottom: 6px;
+  color: var(--muted-soft);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.extension-widget-card__body {
+  display: grid;
+  gap: 4px;
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.extension-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(24, 31, 44, 0.26);
+  backdrop-filter: blur(6px);
+}
+
+.extension-dialog {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 22px;
+  background: #fff;
+  border: 1px solid #dfe4ee;
+  box-shadow: 0 28px 80px rgba(22, 29, 41, 0.16);
+}
+
+.extension-dialog__title {
+  color: var(--text-strong);
+  font-size: 20px;
+  font-weight: 630;
+}
+
+.extension-dialog__body {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.extension-dialog__options {
+  display: grid;
+  gap: 8px;
+}
+
+.extension-dialog__option {
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid #e1e6ef;
+  background: #f9fafc;
+  text-align: left;
+  color: var(--text-strong);
+  font: inherit;
+}
+
+.extension-dialog__option:hover {
+  border-color: #cfd7ea;
+  background: #f2f5fb;
+}
+
+.extension-dialog__editor {
+  min-height: 180px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #d9e0ec;
+  background: #fff;
+  color: var(--text-strong);
+  font: inherit;
+  resize: vertical;
+}
+
+.extension-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .empty-panel--compact {
   width: 100%;
   margin: 0;
@@ -2091,6 +2256,20 @@ mark.thread-find-active {
 :root.dark .skill-detail__status--enabled {
   background: rgba(46, 160, 67, 0.15);
   color: #6ee7b7;
+}
+
+:root.dark .extension-status-strip,
+:root.dark .extension-widget-rail,
+:root.dark .extension-dialog {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+:root.dark .extension-status-strip__label,
+:root.dark .extension-widget-card,
+:root.dark .extension-dialog__option {
+  background: var(--surface-muted);
+  border-color: var(--line);
 }
 
 :root.dark .diff-line--added {

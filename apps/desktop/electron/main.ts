@@ -196,6 +196,12 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.setSkillEnabled, (_event, workspaceId: string, filePath: string, enabled: boolean) =>
     store.setSkillEnabled(workspaceId, filePath, enabled),
   );
+  ipcMain.handle(desktopIpc.setExtensionEnabled, (_event, workspaceId: string, filePath: string, enabled: boolean) =>
+    store.setExtensionEnabled(workspaceId, filePath, enabled),
+  );
+  ipcMain.handle(desktopIpc.respondToHostUiRequest, (_event, workspaceId: string, sessionId: string, response) =>
+    store.respondToHostUiRequest({ workspaceId, sessionId }, response),
+  );
   ipcMain.handle(desktopIpc.setNotificationPreferences, (_event, preferences) =>
     store.setNotificationPreferences(preferences),
   );
@@ -207,6 +213,13 @@ app.whenReady().then(async () => {
     const resolved = store.getSkillFilePath(workspaceId, filePath);
     if (!resolved) {
       throw new Error(`Unknown skill: ${filePath}`);
+    }
+    await shell.openPath(path.dirname(resolved));
+  });
+  ipcMain.handle(desktopIpc.openExtensionInFinder, async (_event, workspaceId: string, filePath: string) => {
+    const resolved = store.getExtensionFilePath(workspaceId, filePath);
+    if (!resolved) {
+      throw new Error(`Unknown extension: ${filePath}`);
     }
     await shell.openPath(path.dirname(resolved));
   });

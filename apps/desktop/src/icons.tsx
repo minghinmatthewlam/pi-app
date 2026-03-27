@@ -178,6 +178,21 @@ export function SkillIcon() {
   );
 }
 
+export function ExtensionIcon() {
+  return (
+    <Icon>
+      <path
+        d="M8.2 3.5 6.7 5a2.3 2.3 0 1 0 1.8 1.8L10 5.3l1.5 1.5a2.3 2.3 0 1 0 1.8-1.8l-1.5-1.5H8.2Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.3"
+      />
+      <path d="M10 9.1v7.1" stroke="currentColor" strokeLinecap="round" strokeWidth="1.3" />
+    </Icon>
+  );
+}
+
 export function RefreshIcon() {
   return (
     <Icon>

@@ -1,6 +1,17 @@
 import type { SessionConfig } from "@pi-gui/session-driver";
-import type { ComposerImageAttachment, TranscriptMessage } from "../src/desktop-state";
+import { createEmptyExtensionUiState as createBaseExtensionUiState, type ExtensionUiState } from "@pi-gui/pi-sdk-driver";
+import type { RuntimeCommandRecord } from "@pi-gui/session-driver/runtime-types";
+import type {
+  ComposerImageAttachment,
+  SessionExtensionDialogRecord,
+  SessionExtensionUiStateRecord,
+  TranscriptMessage,
+} from "../src/desktop-state";
 import type { RunMetrics } from "./app-store-timeline";
+
+export interface MutableSessionExtensionUiState extends ExtensionUiState {
+  pendingDialogs: SessionExtensionDialogRecord[];
+}
 
 /**
  * Consolidates all per-session Maps (and one Set) that DesktopAppStore
@@ -20,6 +31,8 @@ export class SessionStateMap {
   readonly runningSinceBySession = new Map<string, string>();
   readonly runMetricsBySession = new Map<string, RunMetrics>();
   readonly activeWorkingActivityBySession = new Map<string, string>();
+  readonly sessionCommandsBySession = new Map<string, RuntimeCommandRecord[]>();
+  readonly extensionUiBySession = new Map<string, MutableSessionExtensionUiState>();
   readonly loadedTranscriptKeys = new Set<string>();
 
   /**
@@ -47,7 +60,26 @@ export class SessionStateMap {
     this.sessionConfigBySession.delete(key);
     this.lastViewedAtBySession.delete(key);
     this.sessionErrorsBySession.delete(key);
+    this.sessionCommandsBySession.delete(key);
+    this.extensionUiBySession.delete(key);
     this.loadedTranscriptKeys.delete(key);
     this.transcriptCache.delete(key);
   }
+}
+
+export function createEmptyExtensionUiState(): MutableSessionExtensionUiState {
+  return {
+    ...createBaseExtensionUiState(),
+    pendingDialogs: [],
+  };
+}
+
+export function serializeExtensionUiState(state: MutableSessionExtensionUiState): SessionExtensionUiStateRecord {
+  return {
+    statuses: [...state.statuses.entries()].map(([key, text]) => ({ key, text })),
+    widgets: [...state.widgets.values()],
+    pendingDialogs: [...state.pendingDialogs],
+    ...(state.title ? { title: state.title } : {}),
+    ...(state.editorText ? { editorText: state.editorText } : {}),
+  };
 }

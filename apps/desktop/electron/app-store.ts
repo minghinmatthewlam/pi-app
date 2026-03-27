@@ -1,8 +1,15 @@
 import { join } from "node:path";
-import { JsonCatalogStore, PiSdkDriver, type PiSdkDriverConfig, sessionKey } from "@pi-gui/pi-sdk-driver";
+import {
+  applyHostUiRequestToExtensionUiState,
+  isExtensionUiDialogRequest,
+  JsonCatalogStore,
+  PiSdkDriver,
+  type PiSdkDriverConfig,
+  sessionKey,
+} from "@pi-gui/pi-sdk-driver";
 import type { SessionCatalogEntry } from "@pi-gui/catalogs";
-import type { SessionConfig, SessionDriverEvent, SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
-import type { RuntimeLoginCallbacks, RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { HostUiResponse, SessionConfig, SessionDriverEvent, SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
+import type { RuntimeCommandRecord, RuntimeLoginCallbacks, RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   type AppView,
   createEmptyDesktopAppState,
@@ -40,6 +47,7 @@ import {
   toSessionRef,
 } from "./app-store-utils";
 import { SessionStateMap } from "./session-state-map";
+import { createEmptyExtensionUiState, serializeExtensionUiState } from "./session-state-map";
 import { GitWorktreeManager } from "./worktree-manager";
 import * as workspace from "./app-store-workspace";
 import * as worktree from "./app-store-worktree";
@@ -128,6 +136,10 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.runtimeByWorkspace.get(workspaceId)?.skills.find((s) => s.filePath === filePath)?.filePath;
   }
 
+  getExtensionFilePath(workspaceId: string, filePath: string): string | undefined {
+    return this.runtimeByWorkspace.get(workspaceId)?.extensions.find((entry) => entry.path === filePath)?.path;
+  }
+
   async renameWorkspace(workspaceId: string, displayName: string): Promise<DesktopAppState> {
     return workspace.renameWorkspace(this, workspaceId, displayName);
   }
@@ -202,6 +214,12 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async setActiveView(activeView: AppView): Promise<DesktopAppState> {
     await this.initialize();
+    if (this.state.activeView === "threads" && activeView !== "threads") {
+      const sessionRef = this.selectedSessionRef();
+      if (sessionRef) {
+        await this.cancelPendingDialogsForSession(sessionRef);
+      }
+    }
     this.state = {
       ...this.state,
       activeView,
@@ -243,6 +261,8 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.refreshRuntime(ws);
       this.runtimeByWorkspace.set(ws.workspaceId, snapshot);
+      await this.reloadSessionsForWorkspace(ws.workspaceId);
+      await this.refreshSessionCommandsForWorkspace(ws.workspaceId);
       return this.refreshState({ clearLastError: true });
     });
   }
@@ -288,6 +308,7 @@ export class DesktopAppStore implements AppStoreInternals {
   async setEnableSkillCommands(workspaceId: string, enabled: boolean): Promise<DesktopAppState> {
     return this.withRuntimeUpdate(workspaceId, (ws) =>
       this.driver.runtimeSupervisor.setEnableSkillCommands(ws, enabled),
+      { reloadSessions: true },
     );
   }
 
@@ -300,12 +321,23 @@ export class DesktopAppStore implements AppStoreInternals {
   async setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState> {
     return this.withRuntimeUpdate(workspaceId, (ws) =>
       this.driver.runtimeSupervisor.setSkillEnabled(ws, filePath, enabled),
+      { reloadSessions: true },
+    );
+  }
+
+  async setExtensionEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState> {
+    return this.withRuntimeUpdate(workspaceId, (ws) =>
+      this.driver.runtimeSupervisor.setExtensionEnabled(ws, filePath, enabled),
+      { reloadSessions: true },
     );
   }
 
   private async withRuntimeUpdate(
     workspaceId: string,
     action: (ws: WorkspaceRef) => Promise<RuntimeSnapshot>,
+    options?: {
+      readonly reloadSessions?: boolean;
+    },
   ): Promise<DesktopAppState> {
     await this.initialize();
     const ws = this.workspaceRefFromState(workspaceId);
@@ -316,6 +348,10 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.withErrorHandling(async () => {
       const snapshot = await action(ws);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
+      if (options?.reloadSessions) {
+        await this.reloadSessionsForWorkspace(workspaceId);
+      }
+      await this.refreshSessionCommandsForWorkspace(workspaceId);
       return this.refreshState({ clearLastError: true });
     });
   }
@@ -469,6 +505,8 @@ export class DesktopAppStore implements AppStoreInternals {
       selectedSessionId,
       activeView,
       runtimeByWorkspace: this.serializeRuntimeState(),
+      sessionCommandsBySession: mapToRecord(this.sessionState.sessionCommandsBySession),
+      sessionExtensionUiBySession: this.serializeSessionExtensionUiState(),
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
       composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId, options.composerDraft),
       composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
@@ -503,6 +541,7 @@ export class DesktopAppStore implements AppStoreInternals {
       this.updateSessionConfig(sessionRef, snapshot.config);
     }
     await this.ensureSessionSubscribed(sessionRef);
+    await this.refreshSessionCommands(sessionRef);
   }
 
   private async ensureTranscriptLoaded(sessionRef: SessionRef): Promise<void> {
@@ -563,29 +602,179 @@ export class DesktopAppStore implements AppStoreInternals {
     this.sessionState.sessionSubscriptions.set(key, unsubscribe);
   }
 
+  async cancelPendingDialogsForSession(sessionRef: SessionRef): Promise<void> {
+    const key = sessionKey(sessionRef);
+    const uiState = this.sessionState.extensionUiBySession.get(key);
+    if (!uiState || uiState.pendingDialogs.length === 0) {
+      return;
+    }
+
+    const pendingDialogs = [...uiState.pendingDialogs];
+    uiState.pendingDialogs = [];
+    await Promise.all(
+      pendingDialogs.map((dialog) =>
+        this.driver.respondToHostUiRequest(sessionRef, {
+          requestId: dialog.requestId,
+          cancelled: true,
+        } satisfies HostUiResponse),
+      ),
+    );
+  }
+
+  async respondToHostUiRequest(
+    sessionRef: SessionRef,
+    response: HostUiResponse,
+  ): Promise<DesktopAppState> {
+    const key = sessionKey(sessionRef);
+    const uiState = this.sessionState.extensionUiBySession.get(key);
+    if (uiState) {
+      uiState.pendingDialogs = uiState.pendingDialogs.filter((dialog) => dialog.requestId !== response.requestId);
+    }
+
+    return this.withErrorHandling(async () => {
+      await this.driver.respondToHostUiRequest(sessionRef, response);
+      return this.refreshState({ clearLastError: true });
+    });
+  }
+
+  private async refreshSessionCommands(sessionRef: SessionRef): Promise<void> {
+    const key = sessionKey(sessionRef);
+    const commands = await this.driver.getSessionCommands(sessionRef);
+    this.sessionState.sessionCommandsBySession.set(key, [...commands]);
+  }
+
+  async refreshSessionCommandsFor(sessionRef: SessionRef): Promise<void> {
+    await this.refreshSessionCommands(sessionRef);
+  }
+
+  private async refreshSessionCommandsForWorkspace(workspaceId: string): Promise<void> {
+    const sessionRefs = this.sessionRefsForWorkspace(workspaceId);
+    await Promise.all(sessionRefs.map((sessionRef) => this.refreshSessionCommands(sessionRef)));
+  }
+
+  private async reloadSessionsForWorkspace(workspaceId: string): Promise<void> {
+    const sessionRefs = this.sessionRefsForWorkspace(workspaceId);
+    await Promise.all(sessionRefs.map((sessionRef) => this.driver.reloadSession(sessionRef)));
+  }
+
+  private sessionRefsForWorkspace(workspaceId: string): SessionRef[] {
+    const workspace = this.state.workspaces.find((entry) => entry.id === workspaceId);
+    if (!workspace) {
+      return [];
+    }
+
+    return workspace.sessions
+      .map((session) => ({
+        workspaceId,
+        sessionId: session.id,
+      }))
+      .filter((sessionRef) => {
+        const key = sessionKey(sessionRef);
+        return (
+          (this.state.selectedWorkspaceId === workspaceId && this.state.selectedSessionId === sessionRef.sessionId) ||
+          this.sessionState.sessionCommandsBySession.has(key) ||
+          this.sessionState.sessionSubscriptions.has(key)
+        );
+      });
+  }
+
+  private getOrCreateExtensionUiState(sessionRef: SessionRef) {
+    const key = sessionKey(sessionRef);
+    const existing = this.sessionState.extensionUiBySession.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const created = createEmptyExtensionUiState();
+    this.sessionState.extensionUiBySession.set(key, created);
+    return created;
+  }
+
+  private applyHostUiRequest(event: Extract<SessionDriverEvent, { type: "hostUiRequest" }>): void {
+    const uiState = this.getOrCreateExtensionUiState(event.sessionRef);
+    const key = sessionKey(event.sessionRef);
+    applyHostUiRequestToExtensionUiState(uiState, event.request);
+
+    switch (event.request.kind) {
+      case "editorText":
+        this.sessionState.composerDraftsBySession.set(key, event.request.text);
+        if (
+          this.state.selectedWorkspaceId === event.sessionRef.workspaceId &&
+          this.state.selectedSessionId === event.sessionRef.sessionId
+        ) {
+          this.state = {
+            ...this.state,
+            composerDraft: event.request.text,
+          };
+        }
+        break;
+      default:
+        if (isExtensionUiDialogRequest(event.request)) {
+          const dialog = event.request;
+          uiState.pendingDialogs = [
+            ...uiState.pendingDialogs.filter((entry) => entry.requestId !== dialog.requestId),
+            dialog,
+          ];
+        }
+        break;
+    }
+  }
+
   private async handleSessionEvent(event: SessionDriverEvent): Promise<void> {
     const key = sessionKey(event.sessionRef);
+    const knownSession = this.sessionFromState(event.sessionRef);
+    if (
+      !knownSession &&
+      (event.type === "sessionOpened" ||
+        event.type === "sessionUpdated" ||
+        event.type === "runCompleted" ||
+        event.type === "hostUiRequest")
+    ) {
+      await this.refreshState({
+        selectedWorkspaceId:
+          this.state.selectedWorkspaceId === event.sessionRef.workspaceId
+            ? event.sessionRef.workspaceId
+            : this.state.selectedWorkspaceId,
+        selectedSessionId:
+          this.state.selectedWorkspaceId === event.sessionRef.workspaceId
+            ? event.sessionRef.sessionId
+            : this.state.selectedSessionId,
+        clearLastError: true,
+      });
+    }
 
     switch (event.type) {
       case "assistantDelta":
         appendAssistantDelta(this.sessionState.transcriptCache, this.sessionState.activeAssistantMessageBySession, event.sessionRef, event.text);
         break;
       case "sessionOpened":
-      case "sessionUpdated":
       case "runCompleted":
         this.updateSessionConfig(event.sessionRef, event.snapshot.config);
+        await this.refreshSessionCommands(event.sessionRef);
+        break;
+      case "sessionUpdated":
+        this.updateSessionConfig(event.sessionRef, event.snapshot.config);
+        if (event.snapshot.status !== "running") {
+          await this.refreshSessionCommands(event.sessionRef);
+        }
         break;
       case "runFailed":
         this.state = {
           ...this.state,
           lastError: event.error.message,
         };
+        await this.refreshSessionCommands(event.sessionRef);
         break;
       case "sessionClosed":
+        this.sessionState.extensionUiBySession.delete(key);
+        this.sessionState.sessionCommandsBySession.delete(key);
+        break;
       case "toolStarted":
       case "toolUpdated":
       case "toolFinished":
+        break;
       case "hostUiRequest":
+        this.applyHostUiRequest(event);
         break;
       default:
         break;
@@ -616,14 +805,13 @@ export class DesktopAppStore implements AppStoreInternals {
       this.sessionState.lastViewedAtBySession,
     );
     this.markSessionViewedIfVisible(event.sessionRef);
-    this.state = {
-      ...this.state,
-      lastError: this.resolveSelectedSessionError(this.state.selectedWorkspaceId, this.state.selectedSessionId, false),
-    };
-    this.persistTranscriptCacheForSession(event.sessionRef);
+    this.state = this.syncDerivedSessionState(this.state, event.sessionRef);
+    if (event.type !== "hostUiRequest") {
+      this.persistTranscriptCacheForSession(event.sessionRef);
+    }
     if (event.type === "runCompleted" || event.type === "runFailed" || event.type === "sessionClosed") {
       await this.persistUiState();
-    } else {
+    } else if (event.type !== "hostUiRequest") {
       this.schedulePersistUiState();
     }
     const snapshot = this.emit();
@@ -645,6 +833,37 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private serializeRuntimeState(): Record<string, RuntimeSnapshot> {
     return mapToRecord(this.runtimeByWorkspace);
+  }
+
+  private serializeSessionExtensionUiState() {
+    return Object.fromEntries(
+      [...this.sessionState.extensionUiBySession.entries()].map(([key, value]) => [key, serializeExtensionUiState(value)] as const),
+    );
+  }
+
+  private syncDerivedSessionState(state: DesktopAppState, sessionRef: SessionRef): DesktopAppState {
+    const key = sessionKey(sessionRef);
+    const serializedExtensionUi = this.sessionState.extensionUiBySession.get(key);
+
+    return {
+      ...state,
+      sessionCommandsBySession: updateRecordValue(
+        state.sessionCommandsBySession,
+        key,
+        this.sessionState.sessionCommandsBySession.get(key),
+      ),
+      sessionExtensionUiBySession: updateRecordValue(
+        state.sessionExtensionUiBySession,
+        key,
+        serializedExtensionUi ? serializeExtensionUiState(serializedExtensionUi) : undefined,
+      ),
+      lastViewedAtBySession: updateRecordValue(
+        state.lastViewedAtBySession,
+        key,
+        this.sessionState.lastViewedAtBySession.get(key),
+      ),
+      lastError: this.resolveSelectedSessionError(state.selectedWorkspaceId, state.selectedSessionId, false),
+    };
   }
 
   selectedSessionRef(): SessionRef | undefined {
@@ -880,6 +1099,29 @@ export class DesktopAppStore implements AppStoreInternals {
 
 /* ── Module-private free functions ───────────────────────── */
 
+function updateRecordValue<T>(
+  record: Readonly<Record<string, T>>,
+  key: string,
+  value: T | undefined,
+): Readonly<Record<string, T>> {
+  if (value === undefined) {
+    if (!(key in record)) {
+      return record;
+    }
+
+    const { [key]: _removed, ...rest } = record;
+    return rest;
+  }
+
+  if (record[key] === value) {
+    return record;
+  }
+
+  return {
+    ...record,
+    [key]: value,
+  };
+}
 
 function resolveSelectedWorkspaceIdFromCatalog(
   preferredWorkspaceId: string,

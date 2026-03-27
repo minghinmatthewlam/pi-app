@@ -9,6 +9,7 @@ interface TopbarProps {
   readonly rootWorkspace: WorkspaceRecord | undefined;
   readonly selectedWorkspace: WorkspaceRecord | undefined;
   readonly selectedSession: SessionRecord | undefined;
+  readonly selectedSessionTitle: string | undefined;
   readonly selectedWorktree: WorktreeRecord | undefined;
   readonly activeWorktrees: readonly WorktreeRecord[];
   readonly workspaces: readonly WorkspaceRecord[];
@@ -30,6 +31,7 @@ export function Topbar(props: TopbarProps) {
     rootWorkspace,
     selectedWorkspace,
     selectedSession,
+    selectedSessionTitle,
     selectedWorktree,
     activeWorktrees,
     workspaces,
@@ -112,7 +114,7 @@ export function Topbar(props: TopbarProps) {
         {selectedWorkspace && activeView === "threads" && selectedSession ? (
           <>
             <span className="topbar__separator">/</span>
-            <span className="topbar__session">{selectedSession.title}</span>
+            <span className="topbar__session">{selectedSessionTitle ?? selectedSession.title}</span>
           </>
         ) : activeView === "new-thread" && rootWorkspace ? (
           <>

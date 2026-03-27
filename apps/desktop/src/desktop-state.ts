@@ -1,10 +1,10 @@
-import type { SessionConfig } from "@pi-gui/session-driver";
-import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { HostUiRequest, SessionConfig } from "@pi-gui/session-driver";
+import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 export type SessionStatus = "idle" | "running" | "failed";
 export type { SessionRole, TranscriptMessage } from "./timeline-types";
 import type { TranscriptMessage } from "./timeline-types";
 
-export type AppView = "threads" | "new-thread" | "skills" | "settings";
+export type AppView = "threads" | "new-thread" | "skills" | "extensions" | "settings";
 export type WorkspaceKind = "primary" | "worktree";
 export type WorktreeStatus = "ready" | "missing" | "error";
 export type NewThreadEnvironment = "local" | "new-worktree";
@@ -48,6 +48,30 @@ export interface WorktreeRecord {
   readonly updatedAt: string;
 }
 
+export interface SessionExtensionStatusRecord {
+  readonly key: string;
+  readonly text: string;
+}
+
+export interface SessionExtensionWidgetRecord {
+  readonly key: string;
+  readonly lines: readonly string[];
+  readonly placement: "aboveComposer" | "belowComposer";
+}
+
+export type SessionExtensionDialogRecord = Extract<
+  HostUiRequest,
+  { readonly kind: "confirm" | "select" | "input" | "editor" }
+>;
+
+export interface SessionExtensionUiStateRecord {
+  readonly statuses: readonly SessionExtensionStatusRecord[];
+  readonly widgets: readonly SessionExtensionWidgetRecord[];
+  readonly pendingDialogs: readonly SessionExtensionDialogRecord[];
+  readonly title?: string;
+  readonly editorText?: string;
+}
+
 export interface WorkspaceRecord {
   readonly id: string;
   readonly name: string;
@@ -85,6 +109,8 @@ export interface DesktopAppState {
   readonly composerDraft: string;
   readonly composerAttachments: readonly ComposerImageAttachment[];
   readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
+  readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
+  readonly sessionExtensionUiBySession: Readonly<Record<string, SessionExtensionUiStateRecord>>;
   readonly notificationPreferences: NotificationPreferences;
   readonly lastViewedAtBySession: Readonly<Record<string, string>>;
   readonly revision: number;
@@ -111,6 +137,8 @@ export function createEmptyDesktopAppState(): DesktopAppState {
     composerDraft: "",
     composerAttachments: [],
     runtimeByWorkspace: {},
+    sessionCommandsBySession: {},
+    sessionExtensionUiBySession: {},
     notificationPreferences: {
       backgroundCompletion: true,
       backgroundFailure: true,

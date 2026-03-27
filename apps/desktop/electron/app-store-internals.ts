@@ -31,9 +31,12 @@ export interface AppStoreInternals {
   withErrorHandling(fn: () => Promise<DesktopAppState>): Promise<DesktopAppState>;
   workspaceRefFromState(workspaceId: string): WorkspaceRef | undefined;
   selectedSessionRef(): SessionRef | undefined;
+  getExtensionFilePath(workspaceId: string, filePath: string): string | undefined;
   sessionFromState(sessionRef: SessionRef): { archivedAt?: string; updatedAt: string; title: string; status: string } | undefined;
   ensureSessionReady(sessionRef: SessionRef): Promise<void>;
   ensureSessionSubscribed(sessionRef: SessionRef): Promise<void>;
+  refreshSessionCommandsFor(sessionRef: SessionRef): Promise<void>;
+  cancelPendingDialogsForSession(sessionRef: SessionRef): Promise<void>;
   persistUiState(): Promise<void>;
   persistComposerAttachments(key: string, attachments: readonly ComposerImageAttachment[]): Promise<void>;
   persistTranscriptCacheForSession(sessionRef: SessionRef): void;

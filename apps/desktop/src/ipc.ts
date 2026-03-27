@@ -24,6 +24,7 @@ export const desktopIpc = {
   createWorktree: "pi-gui:create-worktree",
   removeWorktree: "pi-gui:remove-worktree",
   openSkillInFinder: "pi-gui:open-skill-in-finder",
+  openExtensionInFinder: "pi-gui:open-extension-in-finder",
   syncCurrentWorkspace: "pi-gui:sync-current-workspace",
   selectSession: "pi-gui:select-session",
   archiveSession: "pi-gui:archive-session",
@@ -42,6 +43,8 @@ export const desktopIpc = {
   setEnableSkillCommands: "pi-gui:set-enable-skill-commands",
   setScopedModelPatterns: "pi-gui:set-scoped-model-patterns",
   setSkillEnabled: "pi-gui:set-skill-enabled",
+  setExtensionEnabled: "pi-gui:set-extension-enabled",
+  respondToHostUiRequest: "pi-gui:respond-to-host-ui-request",
   setNotificationPreferences: "pi-gui:set-notification-preferences",
   pickComposerImages: "pi-gui:pick-composer-images",
   addComposerImages: "pi-gui:add-composer-images",
@@ -112,6 +115,7 @@ export interface PiDesktopApi {
   createWorktree(input: CreateWorktreeInput): Promise<DesktopAppState>;
   removeWorktree(input: RemoveWorktreeInput): Promise<DesktopAppState>;
   openSkillInFinder(workspaceId: string, filePath: string): Promise<void>;
+  openExtensionInFinder(workspaceId: string, filePath: string): Promise<void>;
   syncCurrentWorkspace(): Promise<DesktopAppState>;
   selectSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   archiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
@@ -142,6 +146,15 @@ export interface PiDesktopApi {
   setEnableSkillCommands(workspaceId: string, enabled: boolean): Promise<DesktopAppState>;
   setScopedModelPatterns(workspaceId: string, patterns: readonly string[]): Promise<DesktopAppState>;
   setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState>;
+  setExtensionEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState>;
+  respondToHostUiRequest(
+    workspaceId: string,
+    sessionId: string,
+    response:
+      | { readonly requestId: string; readonly value: string }
+      | { readonly requestId: string; readonly confirmed: boolean }
+      | { readonly requestId: string; readonly cancelled: true },
+  ): Promise<DesktopAppState>;
   setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState>;
   pickComposerImages(): Promise<DesktopAppState>;
   addComposerImages(attachments: readonly ComposerImageAttachment[]): Promise<DesktopAppState>;

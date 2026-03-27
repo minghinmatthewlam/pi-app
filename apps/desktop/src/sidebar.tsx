@@ -1,5 +1,5 @@
 import type { AppView, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
-import { ArchiveIcon, ChevronDownIcon, FolderIcon, PlusIcon, RestoreIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
+import { ArchiveIcon, ChevronDownIcon, ExtensionIcon, FolderIcon, PlusIcon, RestoreIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
 import { formatRelativeTime } from "./string-utils";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
@@ -25,6 +25,7 @@ interface SidebarProps {
   readonly onNewThread: () => void;
   readonly onSetActiveView: (view: AppView) => void;
   readonly onOpenSkills: (workspaceId?: string) => void;
+  readonly onOpenExtensions: (workspaceId?: string) => void;
   readonly onOpenSettings: (workspaceId?: string) => void;
   readonly onArchiveSession: (rootWorkspaceId: string, target: { workspaceId: string; sessionId: string }) => void;
   readonly onSelectSession: (target: { workspaceId: string; sessionId: string }) => void;
@@ -46,6 +47,7 @@ export function Sidebar(props: SidebarProps) {
     onNewThread,
     onSetActiveView,
     onOpenSkills,
+    onOpenExtensions,
     onOpenSettings,
     onArchiveSession,
     onSelectSession,
@@ -81,6 +83,14 @@ export function Sidebar(props: SidebarProps) {
           >
             <SkillIcon />
             <span>Skills</span>
+          </button>
+          <button
+            className="sidebar__nav-item"
+            type="button"
+            onClick={() => onOpenExtensions(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id)}
+          >
+            <ExtensionIcon />
+            <span>Extensions</span>
           </button>
           <button
             className="sidebar__nav-item"

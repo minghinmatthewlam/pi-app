@@ -88,6 +88,11 @@ export async function selectWorkspace(store: AppStoreInternals, workspaceId: str
     return store.emit();
   }
 
+  const currentSessionRef = store.selectedSessionRef();
+  if (currentSessionRef && currentSessionRef.workspaceId !== workspaceId) {
+    await store.cancelPendingDialogsForSession(currentSessionRef);
+  }
+
   return syncWorkspace(store, workspaceId, {
     selectedWorkspaceId: workspaceId,
     selectedSessionId: store.state.selectedWorkspaceId === workspaceId ? store.state.selectedSessionId : "",
@@ -99,6 +104,13 @@ export async function selectWorkspace(store: AppStoreInternals, workspaceId: str
 
 export async function selectSession(store: AppStoreInternals, target: WorkspaceSessionTarget): Promise<DesktopAppState> {
   await store.initialize();
+  const currentSessionRef = store.selectedSessionRef();
+  if (
+    currentSessionRef &&
+    (currentSessionRef.workspaceId !== target.workspaceId || currentSessionRef.sessionId !== target.sessionId)
+  ) {
+    await store.cancelPendingDialogsForSession(currentSessionRef);
+  }
 
   return store.withErrorHandling(async () =>
     store.refreshState({

@@ -1,8 +1,14 @@
 import type { SessionConfig } from "@pi-gui/session-driver";
-import type { RuntimeProviderRecord, RuntimeSettingsSnapshot, RuntimeSkillRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type {
+  RuntimeCommandRecord,
+  RuntimeProviderRecord,
+  RuntimeSettingsSnapshot,
+  RuntimeSnapshot,
+} from "@pi-gui/session-driver/runtime-types";
 import { titleCase } from "./string-utils";
 
 export type ComposerSlashCommandKind =
+  | "runtime"
   | "model"
   | "thinking"
   | "status"
@@ -13,8 +19,7 @@ export type ComposerSlashCommandKind =
   | "login"
   | "logout"
   | "settings"
-  | "scoped-models"
-  | "skill";
+  | "scoped-models";
 
 export interface ComposerSlashCommand {
   readonly id: string;
@@ -24,12 +29,13 @@ export interface ComposerSlashCommand {
   readonly title: string;
   readonly description: string;
   readonly submitMode?: "immediate" | "prefill" | "pick-option";
-  readonly section: "commands" | "skills";
-  readonly skill?: RuntimeSkillRecord;
+  readonly section: "runtime" | "host";
+  readonly runtimeCommand?: RuntimeCommandRecord;
+  readonly sourceLabel?: string;
 }
 
 export interface ComposerSlashCommandSection {
-  readonly id: "commands" | "skills";
+  readonly id: "runtime" | "host";
   readonly title?: string;
   readonly items: readonly ComposerSlashCommand[];
 }
@@ -69,116 +75,116 @@ const INCOMPLETE_COMMAND_MESSAGES: Readonly<Record<string, string>> = {
   "/thinking": "Choose a reasoning level from the slash menu before sending /thinking.",
 } as const;
 
-const BUILTIN_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [
+const HOST_ACTION_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [
   {
-    id: "model",
+    id: "host:model",
     kind: "model",
     command: "/model",
     template: "/model",
     title: "Model",
     description: "Choose the model for this session",
     submitMode: "pick-option",
-    section: "commands",
+    section: "host",
   },
   {
-    id: "thinking",
+    id: "host:thinking",
     kind: "thinking",
     command: "/thinking",
     template: "/thinking",
     title: "Reasoning",
     description: "Set thinking level for this session",
     submitMode: "pick-option",
-    section: "commands",
+    section: "host",
   },
   {
-    id: "status",
+    id: "host:status",
     kind: "status",
     command: "/status",
     template: "/status",
     title: "Status",
     description: "Show current session overrides in the timeline",
     submitMode: "immediate",
-    section: "commands",
+    section: "host",
   },
   {
-    id: "login",
+    id: "host:login",
     kind: "login",
     command: "/login",
     template: "/login",
     title: "Login",
     description: "Authenticate a provider for this workspace",
     submitMode: "pick-option",
-    section: "commands",
+    section: "host",
   },
   {
-    id: "logout",
+    id: "host:logout",
     kind: "logout",
     command: "/logout",
     template: "/logout",
     title: "Logout",
     description: "Remove a provider login from this workspace",
     submitMode: "pick-option",
-    section: "commands",
+    section: "host",
   },
   {
-    id: "settings",
+    id: "host:settings",
     kind: "settings",
     command: "/settings",
     template: "/settings",
     title: "Settings",
     description: "Open model, skill, and notification settings",
     submitMode: "immediate",
-    section: "commands",
+    section: "host",
   },
   {
-    id: "scoped-models",
+    id: "host:scoped-models",
     kind: "scoped-models",
     command: "/scoped-models",
     template: "/scoped-models",
     title: "Scoped models",
     description: "Manage the quick-cycle model shortlist",
     submitMode: "immediate",
-    section: "commands",
+    section: "host",
   },
   {
-    id: "session",
+    id: "host:session",
     kind: "session",
     command: "/session",
     template: "/session",
     title: "Session",
     description: "Show current session details in the timeline",
     submitMode: "immediate",
-    section: "commands",
+    section: "host",
   },
   {
-    id: "name",
+    id: "host:name",
     kind: "name",
     command: "/name",
     template: "/name New thread title",
     title: "Rename",
     description: "Rename the current session",
     submitMode: "prefill",
-    section: "commands",
+    section: "host",
   },
   {
-    id: "compact",
+    id: "host:compact",
     kind: "compact",
     command: "/compact",
     template: "/compact",
     title: "Compact",
     description: "Compact session context now",
     submitMode: "immediate",
-    section: "commands",
+    section: "host",
   },
   {
-    id: "reload",
+    id: "host:reload",
     kind: "reload",
     command: "/reload",
     template: "/reload",
     title: "Reload",
     description: "Reload prompts, skills, and session resources",
     submitMode: "immediate",
-    section: "commands",
+    section: "host",
   },
 ] as const;
 
@@ -207,38 +213,98 @@ export const THINKING_OPTIONS: readonly ComposerSlashOption[] = [
 
 export function buildSlashCommandSections(
   query: string,
-  runtime?: RuntimeSnapshot,
+  runtime: RuntimeSnapshot | undefined,
+  sessionCommands: readonly RuntimeCommandRecord[],
 ): readonly ComposerSlashCommandSection[] {
   const normalizedQuery = query.trim().toLowerCase();
-  const builtinMatches = BUILTIN_SLASH_COMMANDS.filter((command) => matchesCommand(command, normalizedQuery));
-  const skillMatches = (runtime?.skills ?? [])
-    .map<ComposerSlashCommand>((skill: RuntimeSkillRecord) => ({
-      id: `skill:${skill.name}`,
-      kind: "skill",
-      command: skill.slashCommand,
-      template: `${skill.slashCommand} `,
-      title: titleCase(skill.name),
-      description: summarizeSkillDescription(skill.description),
+  const availableRuntimeCommands = resolveRuntimeCommands(runtime, sessionCommands);
+  const runtimeMatches = availableRuntimeCommands
+    .map<ComposerSlashCommand>((command) => ({
+      id: `runtime:${command.source}:${command.name}`,
+      kind: "runtime",
+      command: `/${command.name}`,
+      template: `/${command.name} `,
+      title: formatRuntimeCommandTitle(command),
+      description: formatRuntimeCommandDescription(command),
       submitMode: "prefill",
-      section: "skills",
-      skill,
+      section: "runtime",
+      runtimeCommand: command,
+      sourceLabel: formatRuntimeSourceLabel(command),
     }))
     .filter((command) => matchesCommand(command, normalizedQuery));
+  const hostMatches = HOST_ACTION_SLASH_COMMANDS.filter((command) => matchesCommand(command, normalizedQuery));
 
   const sections: ComposerSlashCommandSection[] = [
     {
-      id: "commands",
-      title: undefined,
-      items: builtinMatches,
+      id: "runtime",
+      title: runtimeMatches.length > 0 ? "Runtime Commands" : undefined,
+      items: runtimeMatches,
     },
     {
-      id: "skills",
-      title: skillMatches.length > 0 ? "Skills" : undefined,
-      items: skillMatches,
+      id: "host",
+      title: hostMatches.length > 0 ? "Host Actions" : undefined,
+      items: hostMatches,
     },
   ];
 
   return sections.filter((section) => section.items.length > 0);
+}
+
+export function resolveRuntimeCommands(
+  runtime: RuntimeSnapshot | undefined,
+  sessionCommands: readonly RuntimeCommandRecord[],
+): readonly RuntimeCommandRecord[] {
+  if (!runtime || !runtime.settings.enableSkillCommands) {
+    return sessionCommands;
+  }
+
+  const merged = [...sessionCommands];
+  const seenNames = new Set(sessionCommands.map((command) => command.name));
+  for (const skill of runtime.skills) {
+    if (!skill.enabled) {
+      continue;
+    }
+
+    const commandName = normalizeRuntimeCommandName(skill.slashCommand);
+    if (seenNames.has(commandName)) {
+      continue;
+    }
+
+    seenNames.add(commandName);
+    merged.push({
+      name: commandName,
+      description: skill.description,
+      source: "skill",
+      sourceInfo: {
+        path: skill.filePath,
+        source: skill.source,
+        scope: skill.filePath.startsWith(runtime.workspace.path) ? "project" : "user",
+        origin: "top-level",
+        baseDir: skill.baseDir,
+      },
+    });
+  }
+
+  return merged;
+}
+
+export function hasRuntimeSlashCommand(
+  text: string,
+  runtime: RuntimeSnapshot | undefined,
+  sessionCommands: readonly RuntimeCommandRecord[],
+): boolean {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/")) {
+    return false;
+  }
+
+  const spaceIndex = trimmed.indexOf(" ");
+  const commandName = normalizeRuntimeCommandName(spaceIndex === -1 ? trimmed : trimmed.slice(0, spaceIndex));
+  return resolveRuntimeCommands(runtime, sessionCommands).some((command) => command.name === commandName);
+}
+
+function normalizeRuntimeCommandName(value: string): string {
+  return value.trim().replace(/^\/+/, "");
 }
 
 export function flattenSlashSections(
@@ -320,7 +386,7 @@ function matchesCommand(command: ComposerSlashCommand, normalizedQuery: string):
     return true;
   }
 
-  return [command.command, command.title, command.description].some((value) =>
+  return [command.command, command.title, command.description, command.sourceLabel ?? ""].some((value) =>
     value.toLowerCase().includes(normalizedQuery),
   );
 }
@@ -373,6 +439,36 @@ function summarizeSkillDescription(value: string): string {
 
   const firstSentence = trimmed.match(/^[^.!?]+[.!?]?/)?.[0]?.trim() ?? trimmed;
   return firstSentence.length > 96 ? `${firstSentence.slice(0, 93).trimEnd()}...` : firstSentence;
+}
+
+function formatRuntimeCommandTitle(command: RuntimeCommandRecord): string {
+  if (command.source === "skill" && command.name.startsWith("skill:")) {
+    return titleCase(command.name.slice("skill:".length));
+  }
+  return titleCase(command.name.replace(/[:_-]+/g, " "));
+}
+
+function formatRuntimeCommandDescription(command: RuntimeCommandRecord): string {
+  if (command.description?.trim()) {
+    return command.description.trim();
+  }
+  if (command.source === "prompt") {
+    return "Prompt template";
+  }
+  if (command.source === "skill") {
+    return "Skill command";
+  }
+  return "Extension command";
+}
+
+function formatRuntimeSourceLabel(command: RuntimeCommandRecord): string {
+  if (command.source === "skill") {
+    return "Skill";
+  }
+  if (command.source === "prompt") {
+    return "Prompt";
+  }
+  return command.sourceInfo.source.replace(/^extension:/, "");
 }
 
 export function formatSessionConfigStatus(config?: SessionConfig): string {
