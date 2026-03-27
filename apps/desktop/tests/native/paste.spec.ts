@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
+  getDesktopState,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -22,7 +23,13 @@ test("pastes an image from the real Electron clipboard into the composer", async
     await harness.focusWindow();
 
     await pasteTinyPngViaClipboard(harness, window);
-    await expect(window.locator(".composer-attachment")).toContainText("image.png");
+    await expect(window.locator(".composer-attachment")).toHaveCount(1);
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        return state.composerAttachments.map((attachment) => attachment.mimeType);
+      })
+      .toEqual(["image/png"]);
 
     await window.getByTestId("composer").fill("test with clipboard image");
     await window.getByTestId("composer").press("Enter");
