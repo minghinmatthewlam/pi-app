@@ -81,7 +81,21 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
 
   return store.withErrorHandling(async () => {
     let targetWorkspace = rootWorkspace;
-    if (input.environment === "new-worktree") {
+    if (input.environment === "current-worktree") {
+      const targetStateWorkspace = store.state.workspaces.find((workspace) => workspace.id === input.targetWorkspaceId);
+      if (
+        !targetStateWorkspace ||
+        targetStateWorkspace.kind !== "worktree" ||
+        targetStateWorkspace.rootWorkspaceId !== input.rootWorkspaceId
+      ) {
+        throw new Error(`Unknown worktree workspace: ${input.targetWorkspaceId}`);
+      }
+      const existingWorktree = store.workspaceRefFromState(targetStateWorkspace.id);
+      if (!existingWorktree) {
+        throw new Error(`Unknown worktree workspace: ${targetStateWorkspace.id}`);
+      }
+      targetWorkspace = existingWorktree;
+    } else if (input.environment === "new-worktree") {
       const worktreeOptions = buildWorktreeOptions(store, rootWorkspace, undefined, undefined, input.prompt);
       const created = await store.worktreeManager.createWorktree(rootWorkspace, worktreeOptions);
       const synced = await store.driver.syncWorkspace(created.path, created.displayName);

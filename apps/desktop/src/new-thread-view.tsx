@@ -8,6 +8,7 @@ interface NewThreadViewProps {
   readonly selectedWorkspaceId: string;
   readonly runtime?: RuntimeSnapshot;
   readonly environment: NewThreadEnvironment;
+  readonly currentWorktreeName?: string;
   readonly prompt: string;
   readonly onChangePrompt: (prompt: string) => void;
   readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
@@ -20,6 +21,7 @@ export function NewThreadView({
   selectedWorkspaceId,
   runtime,
   environment,
+  currentWorktreeName,
   prompt,
   onChangePrompt,
   onSelectEnvironment,
@@ -104,6 +106,15 @@ export function NewThreadView({
                 >
                   <span>Local</span>
                 </button>
+                {currentWorktreeName ? (
+                  <button
+                    className={`new-thread__environment ${environment === "current-worktree" ? "new-thread__environment--active" : ""}`}
+                    type="button"
+                    onClick={() => onSelectEnvironment("current-worktree")}
+                  >
+                    <span>Current worktree</span>
+                  </button>
+                ) : null}
                 <button
                   className={`new-thread__environment ${environment === "new-worktree" ? "new-thread__environment--active" : ""}`}
                   type="button"
@@ -113,6 +124,11 @@ export function NewThreadView({
                 </button>
               </div>
               <div className="new-thread__meta">
+                {currentWorktreeName && environment === "current-worktree" ? (
+                  <span className="new-thread__meta-item">
+                    <span>{currentWorktreeName}</span>
+                  </span>
+                ) : null}
                 <span className="new-thread__meta-item">
                   <ModelIcon />
                   <span>{modelLabel}</span>

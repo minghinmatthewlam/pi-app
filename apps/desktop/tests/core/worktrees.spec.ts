@@ -6,11 +6,11 @@ import { expect, test } from "@playwright/test";
 import {
   assertExists,
   createNamedThread,
-  createSessionViaIpc,
   getDesktopState,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  startThreadFromSurface,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
@@ -56,6 +56,7 @@ test("creates and selects a worktree-backed workspace from the desktop UI", asyn
     await window.getByRole("complementary").getByRole("button", { name: "New thread" }).click();
     await expect(window.getByTestId("new-thread-composer")).toBeVisible();
     await expect(window.getByRole("button", { name: "Local", exact: true })).toBeVisible();
+    await expect(window.getByRole("button", { name: "Current worktree", exact: true })).toBeVisible();
     await expect(window.getByRole("button", { name: "New worktree", exact: true })).toBeVisible();
   } finally {
     await harness.close();
@@ -98,7 +99,10 @@ test("shows a worktree icon in the sidebar without a local text badge", async ()
     );
     assertExists(firstWorktree, "Expected selected worktree workspace");
 
-    await createSessionViaIpc(window, firstWorktree.id, "Worktree thread");
+    await startThreadFromSurface(window, {
+      environment: "current-worktree",
+      prompt: "Worktree thread",
+    });
     const worktreeRow = window.locator(".session-row", { hasText: "Worktree thread" });
     await expect(worktreeRow).toBeVisible();
     await expect(worktreeRow).toHaveAttribute("data-sidebar-indicator", "none");

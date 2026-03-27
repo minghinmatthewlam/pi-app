@@ -95,8 +95,22 @@ export function desktopShortcut(keyChord: string): string {
   return `${desktopModifierKey}+${keyChord}`;
 }
 
+export async function pasteTinyPngViaClipboard(harness: DesktopHarness, window: Page): Promise<void> {
+  const composer = window.getByTestId("composer");
+  await composer.click();
+  await expect(composer).toBeFocused();
+  await harness.electronApp.evaluate(({ clipboard, nativeImage }, encodedPng) => {
+    clipboard.writeImage(nativeImage.createFromDataURL(`data:image/png;base64,${encodedPng}`));
+  }, TINY_PNG_BASE64);
+  await harness.electronApp.evaluate(({ BrowserWindow }) => {
+    const appWindow = BrowserWindow.getAllWindows()[0];
+    appWindow?.webContents.focus();
+    appWindow?.webContents.paste();
+  });
+  await expect(window.locator(".composer-attachment")).toBeVisible();
+}
+
 export async function pasteTinyPng(window: Page, fileName = "screenshot.png"): Promise<void> {
-  // Electron clipboard image paste did not surface file items under Playwright, so drive the real renderer paste handler directly.
   await window.evaluate(({ encodedPng, name }) => {
     const composer = document.querySelector<HTMLTextAreaElement>("[data-testid='composer']");
     if (!composer) {
@@ -228,6 +242,8 @@ export async function startThreadFromSurface(
   }
   if (environment === "new-worktree") {
     await window.getByRole("button", { name: "New worktree", exact: true }).click();
+  } else if (environment === "current-worktree") {
+    await window.getByRole("button", { name: "Current worktree", exact: true }).click();
   } else {
     await window.getByRole("button", { name: "Local", exact: true }).click();
   }
