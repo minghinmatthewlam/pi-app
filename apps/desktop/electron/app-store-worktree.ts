@@ -110,12 +110,18 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
     store.sessionState.transcriptCache.set(key, []);
     store.sessionState.loadedTranscriptKeys.add(key);
     store.updateSessionConfig(session.ref, session.config);
-    await store.ensureSessionSubscribed(session.ref);
-    if (prompt) {
-      await sendMessageToSession(store, session.ref, prompt, []);
+
+    if (input.provider && input.modelId) {
+      await store.driver.setSessionModel(session.ref, { provider: input.provider, modelId: input.modelId });
+    }
+    if (input.thinkingLevel) {
+      await store.driver.setSessionThinkingLevel(session.ref, input.thinkingLevel);
     }
 
-    return store.refreshState({
+    await store.ensureSessionSubscribed(session.ref);
+
+    // Navigate to thread view immediately so streaming deltas render live
+    const state = await store.refreshState({
       selectedWorkspaceId: session.ref.workspaceId,
       selectedSessionId: session.ref.sessionId,
       composerDraft: "",
@@ -123,6 +129,16 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
       refreshWorktrees: input.environment === "new-worktree",
       activeView: "threads",
     });
+
+    // Fire message in background — assistantDelta events flow through
+    // handleSessionEvent → emit() and update React while on the thread view
+    if (prompt) {
+      void sendMessageToSession(store, session.ref, prompt, []).catch((error) => {
+        void store.withError(error);
+      });
+    }
+
+    return state;
   });
 }
 
