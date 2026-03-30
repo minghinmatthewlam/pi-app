@@ -83,7 +83,6 @@ export function SettingsView({
           {section === "general" ? (
             <SettingsGeneralSection
               runtime={runtime}
-              workspace={workspace}
               onToggleSkillCommands={onToggleSkillCommands}
             />
           ) : null}

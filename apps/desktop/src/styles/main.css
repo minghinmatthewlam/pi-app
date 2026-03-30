@@ -1401,6 +1401,11 @@
   padding-top: 12px;
 }
 
+.settings-group > .settings-disclosure {
+  border-top: none;
+  padding: 14px 18px;
+}
+
 .settings-disclosure__summary {
   display: flex;
   align-items: center;

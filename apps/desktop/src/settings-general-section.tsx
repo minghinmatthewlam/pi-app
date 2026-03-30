@@ -1,20 +1,17 @@
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { WorkspaceRecord } from "./desktop-state";
 import { SettingsGroup, SettingsInfoRow, SettingsRow } from "./settings-utils";
 
 interface SettingsGeneralSectionProps {
-  readonly workspace?: WorkspaceRecord;
   readonly runtime?: RuntimeSnapshot;
   readonly onToggleSkillCommands: (enabled: boolean) => void;
 }
 
-export function SettingsGeneralSection({ workspace, runtime, onToggleSkillCommands }: SettingsGeneralSectionProps) {
+export function SettingsGeneralSection({ runtime, onToggleSkillCommands }: SettingsGeneralSectionProps) {
   const connectedCount = runtime?.providers.filter((p) => p.hasAuth).length ?? 0;
 
   return (
     <>
       <SettingsGroup title="General">
-        <SettingsInfoRow label="Workspace" value={workspace?.name ?? "No workspace selected"} />
         <SettingsInfoRow
           label="Connected providers"
           value={connectedCount > 0 ? String(connectedCount) : "None"}
@@ -30,6 +27,7 @@ export function SettingsGeneralSection({ workspace, runtime, onToggleSkillComman
       </SettingsGroup>
 
       <SettingsGroup title="Shortcuts">
+        <SettingsInfoRow label="New thread" value="Cmd+Shift+O" />
         <SettingsInfoRow label="Open settings" value="Cmd+," />
         <SettingsInfoRow label="Send message" value="Enter" />
         <SettingsInfoRow label="New line" value="Shift+Enter" />
