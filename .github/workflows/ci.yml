@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  verify:
+  typecheck:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,5 +26,21 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Desktop Smoke Tests
-        run: xvfb-run -a pnpm --filter @pi-gui/desktop test
+  desktop-core:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Desktop Core
+        run: pnpm --filter @pi-gui/desktop run test:e2e:ci:mac

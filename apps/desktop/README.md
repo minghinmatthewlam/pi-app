@@ -2,6 +2,8 @@
 
 Codex-style Electron shell for `pi`, with Playwright E2E coverage organized by test lane.
 
+macOS is the supported desktop target today. Keep generic repo checks on Linux if useful, but treat macOS as the source of truth for desktop CI and product verification.
+
 ## Setup
 
 Install workspace dependencies once:
@@ -54,6 +56,12 @@ Run all desktop lanes:
 
 ```bash
 pnpm --filter @pi-gui/desktop run test:e2e:all
+```
+
+For mac-first CI, use:
+
+```bash
+pnpm --filter @pi-gui/desktop run test:e2e:ci:mac
 ```
 
 ## Focus And Foreground Rules

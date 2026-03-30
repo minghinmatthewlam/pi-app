@@ -1,11 +1,12 @@
-import { execSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   assertExists,
+  commitAllInGitRepo,
   createNamedThread,
   getDesktopState,
+  initGitRepo,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -72,11 +73,10 @@ test("renders a single collapsed dock inside the composer surface and expands to
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("extension-dock-workspace");
-  execSync("git init", { cwd: workspacePath, stdio: "ignore" });
+  await initGitRepo(workspacePath);
   await mkdir(join(workspacePath, "src"), { recursive: true });
   await writeFile(join(workspacePath, "src", "App.tsx"), "export default function App() { return null; }\n", "utf8");
-  execSync("git add -A", { cwd: workspacePath, stdio: "ignore" });
-  execSync("git commit -m init", { cwd: workspacePath, stdio: "ignore" });
+  await commitAllInGitRepo(workspacePath, "init");
   await writeProjectExtension(workspacePath, "dock-extension.ts", extensionSource);
 
   const harness = await launchDesktop(userDataDir, {

@@ -1,12 +1,15 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { expect, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright";
 import type { PiDesktopApi } from "../../src/ipc";
 import type { DesktopAppState, NewThreadEnvironment, SessionRecord, WorkspaceRecord } from "../../src/desktop-state";
 
 const desktopDir = process.cwd();
+const execFileAsync = promisify(execFile);
 export const TINY_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZfXQAAAAASUVORK5CYII=";
 
@@ -97,6 +100,17 @@ export async function writeProjectExtension(
   const extensionPath = join(extensionsDir, fileName);
   await writeFile(extensionPath, source, "utf8");
   return extensionPath;
+}
+
+export async function initGitRepo(workspacePath: string): Promise<void> {
+  await execFileAsync("git", ["init", "-b", "main"], { cwd: workspacePath });
+  await execFileAsync("git", ["config", "user.name", "Pi App Tests"], { cwd: workspacePath });
+  await execFileAsync("git", ["config", "user.email", "pi-gui-tests@example.com"], { cwd: workspacePath });
+}
+
+export async function commitAllInGitRepo(workspacePath: string, message: string): Promise<void> {
+  await execFileAsync("git", ["add", "-A"], { cwd: workspacePath });
+  await execFileAsync("git", ["commit", "-m", message], { cwd: workspacePath });
 }
 
 export async function writeTinyPng(filePath: string): Promise<void> {

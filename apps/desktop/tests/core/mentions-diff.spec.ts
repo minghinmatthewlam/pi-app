@@ -1,10 +1,11 @@
-import { execSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
+  commitAllInGitRepo,
   createNamedThread,
   desktopShortcut,
+  initGitRepo,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -14,10 +15,11 @@ test("shows workspace file mentions from the composer and inserts the selected f
   test.setTimeout(30_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("mention-workspace");
-  execSync("git init && git add -A && git commit -m init", { cwd: workspacePath, stdio: "ignore" });
+  await initGitRepo(workspacePath);
+  await commitAllInGitRepo(workspacePath, "init");
   await mkdir(join(workspacePath, "src"), { recursive: true });
   await writeFile(join(workspacePath, "src", "App.tsx"), "export default App;\n", "utf8");
-  execSync("git add -A && git commit -m 'add src'", { cwd: workspacePath, stdio: "ignore" });
+  await commitAllInGitRepo(workspacePath, "add src");
 
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
@@ -59,7 +61,8 @@ test("toggles the diff panel from the keyboard shortcut and renders changed file
   test.setTimeout(30_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("diff-workspace");
-  execSync("git init && git add -A && git commit -m init", { cwd: workspacePath, stdio: "ignore" });
+  await initGitRepo(workspacePath);
+  await commitAllInGitRepo(workspacePath, "init");
   await writeFile(join(workspacePath, "README.md"), "# diff-workspace\nnew line\n", "utf8");
 
   const harness = await launchDesktop(userDataDir, {
