@@ -5,10 +5,12 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  type DraggableAttributes,
+  type DraggableSyntheticListeners,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { AppView, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
 import { ArchiveIcon, ChevronDownIcon, ExtensionIcon, FolderIcon, GripIcon, PlusIcon, RestoreIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
@@ -85,11 +87,9 @@ export function Sidebar(props: SidebarProps) {
 
     const oldIndex = rootGroupIds.indexOf(String(active.id));
     const newIndex = rootGroupIds.indexOf(String(over.id));
-    if (oldIndex === -1 || newIndex === -1) return;
+    if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
 
-    const newOrder = [...rootGroupIds];
-    newOrder.splice(oldIndex, 1);
-    newOrder.splice(newIndex, 0, String(active.id));
+    const newOrder = arrayMove(rootGroupIds, oldIndex, newIndex);
     void updateSnapshot(api, setSnapshot, () => api.reorderWorkspaces(newOrder));
   }
 
@@ -184,7 +184,6 @@ export function Sidebar(props: SidebarProps) {
                     key={group.rootWorkspace.id}
                     group={group}
                     canDrag={canDrag}
-                    isDragging={activeId === group.rootWorkspace.id}
                     selectedWorkspace={selectedWorkspace}
                     selectedSession={selectedSession}
                     linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
@@ -200,7 +199,6 @@ export function Sidebar(props: SidebarProps) {
                     key={group.rootWorkspace.id}
                     group={group}
                     canDrag={false}
-                    isDragging={false}
                     selectedWorkspace={selectedWorkspace}
                     selectedSession={selectedSession}
                     linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
@@ -219,7 +217,6 @@ export function Sidebar(props: SidebarProps) {
                   <WorkspaceGroupContent
                     group={activeGroup}
                     canDrag={false}
-                    isDragging={false}
                     selectedWorkspace={selectedWorkspace}
                     selectedSession={selectedSession}
                     linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
@@ -244,7 +241,6 @@ export function Sidebar(props: SidebarProps) {
 interface WorkspaceGroupProps {
   readonly group: ThreadGroup;
   readonly canDrag: boolean;
-  readonly isDragging: boolean;
   readonly selectedWorkspace: WorkspaceRecord | undefined;
   readonly selectedSession: SessionRecord | undefined;
   readonly linkedWorktreeByWorkspaceId: Map<string, WorktreeRecord>;
@@ -277,7 +273,6 @@ function SortableWorkspaceGroup(props: WorkspaceGroupProps) {
     >
       <WorkspaceGroupContent
         {...props}
-        isDragging={isDragging}
         dragHandleProps={props.canDrag && !isRenaming ? { attributes, listeners } : undefined}
       />
     </section>
@@ -287,18 +282,12 @@ function SortableWorkspaceGroup(props: WorkspaceGroupProps) {
 /* ── Workspace group content (used both inline and in overlay) ──── */
 
 interface DragHandleProps {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly attributes: Record<string, any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly listeners: Record<string, any> | undefined;
+  readonly attributes: DraggableAttributes;
+  readonly listeners: DraggableSyntheticListeners;
 }
 
 function WorkspaceGroupContent(
-  props: WorkspaceGroupProps & {
-    readonly dragHandleProps?: DragHandleProps;
-    readonly style?: React.CSSProperties;
-    readonly ref?: React.Ref<HTMLElement>;
-  },
+  props: WorkspaceGroupProps & { readonly dragHandleProps?: DragHandleProps },
 ) {
   const {
     group: { rootWorkspace, threads, archivedThreads },
