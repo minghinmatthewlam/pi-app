@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  closestCenter,
   DndContext,
   DragOverlay,
   PointerSensor,
@@ -178,7 +179,7 @@ export function Sidebar(props: SidebarProps) {
             </button>
           </div>
         ) : (
-          <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <SortableContext items={rootGroupIds} strategy={verticalListSortingStrategy}>
               <div className="workspace-list" data-testid="workspace-list">
                 {rootGroups.map((group) => (
