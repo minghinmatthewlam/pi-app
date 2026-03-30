@@ -94,17 +94,26 @@ export type StartThreadInput =
       readonly rootWorkspaceId: string;
       readonly environment: "local";
       readonly prompt?: string;
+      readonly provider?: string;
+      readonly modelId?: string;
+      readonly thinkingLevel?: string;
     }
   | {
       readonly rootWorkspaceId: string;
       readonly environment: "new-worktree";
       readonly prompt?: string;
+      readonly provider?: string;
+      readonly modelId?: string;
+      readonly thinkingLevel?: string;
     }
   | {
       readonly rootWorkspaceId: string;
       readonly environment: "current-worktree";
       readonly targetWorkspaceId: string;
       readonly prompt?: string;
+      readonly provider?: string;
+      readonly modelId?: string;
+      readonly thinkingLevel?: string;
     };
 
 export interface RemoveWorktreeInput {
