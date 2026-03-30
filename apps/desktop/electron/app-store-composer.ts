@@ -1,5 +1,5 @@
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
-import type { SessionRef } from "@pi-gui/session-driver";
+import type { SessionConfig, SessionRef } from "@pi-gui/session-driver";
 import type { ComposerImageAttachment, DesktopAppState, WorkspaceSessionTarget } from "../src/desktop-state";
 import { toSessionRef } from "./app-store-utils";
 import {
@@ -153,6 +153,7 @@ export async function setSessionModel(
 
   return store.withErrorHandling(async () => {
     await store.driver.setSessionModel(sessionRef, { provider, modelId });
+    syncSessionConfig(store, key, { provider, modelId });
     return finishComposerCommand(store, sessionRef, key, `Model set to ${provider}:${modelId}`);
   });
 }
@@ -166,6 +167,7 @@ export async function setSessionThinkingLevel(
   const key = sessionKey(sessionRef);
   return store.withErrorHandling(async () => {
     await store.driver.setSessionThinkingLevel(sessionRef, thinkingLevel);
+    syncSessionConfig(store, key, { thinkingLevel });
     return finishComposerCommand(store, sessionRef, key, `Thinking set to ${thinkingLevel}`);
   });
 }
@@ -231,6 +233,12 @@ export async function sendMessageToSession(
   }
 }
 
+/** Eagerly merge config fields so finishComposerCommand sees them before the async sessionUpdated event arrives. */
+function syncSessionConfig(store: AppStoreInternals, key: string, patch: Partial<SessionConfig>): void {
+  const current = store.sessionState.sessionConfigBySession.get(key) ?? {};
+  store.sessionState.sessionConfigBySession.set(key, { ...current, ...patch });
+}
+
 async function runComposerCommand(
   store: AppStoreInternals,
   sessionRef: SessionRef,
@@ -252,11 +260,13 @@ async function runComposerCommand(
       provider: parsed.provider,
       modelId: parsed.modelId,
     });
+    syncSessionConfig(store, key, { provider: parsed.provider, modelId: parsed.modelId });
     return finishComposerCommand(store, sessionRef, key, `Model set to ${parsed.provider}:${parsed.modelId}`);
   }
 
   if (parsed.type === "thinking") {
     await store.driver.setSessionThinkingLevel(sessionRef, parsed.thinkingLevel);
+    syncSessionConfig(store, key, { thinkingLevel: parsed.thinkingLevel });
     return finishComposerCommand(store, sessionRef, key, `Thinking set to ${parsed.thinkingLevel}`);
   }
 
