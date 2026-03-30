@@ -1462,7 +1462,78 @@
 
 .settings-grid {
   display: grid;
-  gap: 16px;
+  gap: 24px;
+}
+
+.settings-section {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-section__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.settings-section__description {
+  font-size: 13px;
+  color: var(--muted-soft);
+}
+
+.settings-group {
+  border: 1px solid #dfe4ee;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.settings-group > :first-child {
+  border-radius: 18px 18px 0 0;
+}
+
+.settings-group > :last-child {
+  border-radius: 0 0 18px 18px;
+}
+
+.settings-group > :only-child {
+  border-radius: 18px;
+}
+
+.settings-group > * + * {
+  border-top: 1px solid #edf0f6;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 18px;
+}
+
+.settings-row__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-row__title {
+  font-size: 14px;
+  font-weight: 590;
+}
+
+.settings-row__description {
+  font-size: 13px;
+  color: var(--muted-soft);
+  line-height: 1.4;
+}
+
+.settings-row__control {
+  flex-shrink: 0;
+}
+
+.settings-row__value {
+  font-size: 13px;
+  color: var(--muted-soft);
 }
 
 .settings-stack {
@@ -1519,13 +1590,13 @@
   font-size: 13px;
 }
 
-.settings-card__hint {
+.settings-hint {
   color: var(--muted-soft);
   font-size: 13px;
   font-style: italic;
 }
 
-.settings-card__warning {
+.settings-warning {
   color: var(--warning, #d97706);
   font-size: 13px;
 }
@@ -2221,6 +2292,15 @@ mark.thread-find-active {
 }
 
 :root.dark .settings-disclosure {
+  border-top-color: var(--line);
+}
+
+:root.dark .settings-group {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+:root.dark .settings-group > * + * {
   border-top-color: var(--line);
 }
 

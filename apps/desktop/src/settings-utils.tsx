@@ -79,37 +79,54 @@ export function filterModels(
   );
 }
 
-export function SettingsCard({
+/* ── Layout components ────────────────────────────────── */
+
+export function SettingsGroup({
   title,
   description,
-  icon,
   children,
 }: {
-  readonly title: string;
-  readonly description: string;
-  readonly icon: ReactNode;
+  readonly title?: string;
+  readonly description?: string;
   readonly children: ReactNode;
 }) {
   return (
-    <section className="settings-card">
-      <div className="settings-card__header">
-        <span className="settings-card__icon">{icon}</span>
-        <div>
-          <h2>{title}</h2>
-          <p>{description}</p>
-        </div>
+    <div className="settings-section">
+      {title ? <h3 className="settings-section__title">{title}</h3> : null}
+      {description ? <p className="settings-section__description">{description}</p> : null}
+      <div className="settings-group">{children}</div>
+    </div>
+  );
+}
+
+export function SettingsRow({
+  title,
+  description,
+  children,
+}: {
+  readonly title: string;
+  readonly description?: string;
+  readonly children?: ReactNode;
+}) {
+  return (
+    <div className="settings-row">
+      <div className="settings-row__label">
+        <div className="settings-row__title">{title}</div>
+        {description ? <div className="settings-row__description">{description}</div> : null}
       </div>
-      {children}
-    </section>
+      {children ? <div className="settings-row__control">{children}</div> : null}
+    </div>
   );
 }
 
 export function SettingsInfoRow({ label, value }: { readonly label: string; readonly value: string }) {
   return (
-    <div className="settings-list__row">
-      <div className="settings-list__body">
-        <div className="settings-list__title">{label}</div>
-        <div className="settings-list__meta">{value}</div>
+    <div className="settings-row">
+      <div className="settings-row__label">
+        <div className="settings-row__title">{label}</div>
+      </div>
+      <div className="settings-row__control">
+        <span className="settings-row__value">{value}</span>
       </div>
     </div>
   );
@@ -125,21 +142,23 @@ export function ProviderRow({
   readonly onLogoutProvider: (providerId: string) => void;
 }) {
   return (
-    <div className="settings-list__row">
-      <div className="settings-list__body">
-        <div className="settings-list__title">{provider.name}</div>
-        <div className="settings-list__meta">
+    <div className="settings-row">
+      <div className="settings-row__label">
+        <div className="settings-row__title">{provider.name}</div>
+        <div className="settings-row__description">
           {provider.oauthSupported ? "OAuth" : provider.authType === "api_key" ? "API key" : "Built in"}
           {provider.hasAuth ? " · connected" : ""}
         </div>
       </div>
-      <button
-        className="button button--secondary"
-        type="button"
-        onClick={() => (provider.hasAuth ? onLogoutProvider(provider.id) : onLoginProvider(provider.id))}
-      >
-        {provider.hasAuth ? "Logout" : provider.oauthSupported ? "Login" : "Configure externally"}
-      </button>
+      <div className="settings-row__control">
+        <button
+          className="button button--secondary"
+          type="button"
+          onClick={() => (provider.hasAuth ? onLogoutProvider(provider.id) : onLoginProvider(provider.id))}
+        >
+          {provider.hasAuth ? "Logout" : provider.oauthSupported ? "Login" : "Configure externally"}
+        </button>
+      </div>
     </div>
   );
 }

@@ -129,10 +129,10 @@ export function SettingsModelsSection({
             ))}
           </div>
           {allImplicitlyEnabled ? (
-            <span className="settings-card__hint">All models enabled by default.</span>
+            <span className="settings-hint">All models enabled by default.</span>
           ) : null}
           {!defaultIsEnabled && defaultProvider && defaultModelId ? (
-            <span className="settings-card__warning">
+            <span className="settings-warning">
               Your default model ({defaultProvider}:{defaultModelId}) is not enabled. Choose a new default above.
             </span>
           ) : null}
