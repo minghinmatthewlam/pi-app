@@ -206,10 +206,13 @@
   width: 100%;
   display: grid;
   align-items: center;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-width: 0;
+  padding-left: 23px;
   text-align: left;
   color: inherit;
+  position: relative;
 }
 
 .worktree-row__select {
@@ -235,6 +238,11 @@
   display: grid;
   place-items: center;
   color: var(--muted-icon);
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .workspace-row__icon svg {
@@ -530,6 +538,7 @@
   align-items: center;
   justify-content: flex-end;
   width: 100%;
+  padding-right: 5px;
 }
 
 .session-row__workspace-icon {
