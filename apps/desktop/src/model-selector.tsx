@@ -70,18 +70,14 @@ export function ModelSelector({ runtime, provider, modelId, thinkingLevel, disab
                   <div className="model-selector__group-title">{group.provider}</div>
                   {group.items.map((option) => {
                     const isActive = option.providerId === currentProvider && option.modelId === currentModelId;
-                    const isUnavailable = option.description.includes("unavailable");
                     return (
                       <button
-                        className={`model-selector__item${isActive ? " model-selector__item--active" : ""}${isUnavailable ? " model-selector__item--unavailable" : ""}`}
+                        className={`model-selector__item${isActive ? " model-selector__item--active" : ""}`}
                         key={`${option.providerId}:${option.modelId}`}
                         type="button"
-                        disabled={isUnavailable}
                         onClick={() => {
-                          if (!isUnavailable) {
-                            onSetModel(option.providerId, option.modelId);
-                            setOpen("none");
-                          }
+                          onSetModel(option.providerId, option.modelId);
+                          setOpen("none");
                         }}
                       >
                         <span className="model-selector__item-label">{option.label}</span>
