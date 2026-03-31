@@ -74,11 +74,12 @@ test("fails fast for unsupported handoff-like commands and learns terminal-only 
     const sessionCountBefore =
       (await getDesktopState(window)).workspaces.find((entry) => entry.id === workspace.id)?.sessions.length ?? 0;
     const composer = window.getByTestId("composer");
+    const composerError = window.getByTestId("composer-error-banner");
 
     await composer.fill("/handoff-gui-test continue the work");
     await composer.press("Enter");
 
-    await expect(window.locator(".error-banner")).toContainText(
+    await expect(composerError).toContainText(
       "/handoff-gui-test requires terminal-only custom UI and is not supported in pi-gui yet.",
     );
     await expect(window.getByTestId("extension-dialog")).toHaveCount(0);
@@ -98,7 +99,7 @@ test("fails fast for unsupported handoff-like commands and learns terminal-only 
         ?.sessions.find((session) => session.title === "Compatibility session")?.transcript.length ?? 0;
     await composer.fill("/handoff-gui-test local block");
     await composer.press("Enter");
-    await expect(window.locator(".error-banner")).toContainText(
+    await expect(composerError).toContainText(
       "/handoff-gui-test requires terminal-only custom UI and is not supported in pi-gui yet.",
     );
     await expect
@@ -155,7 +156,7 @@ test("persists learned terminal-only command compatibility across relaunch", asy
     const composer = firstWindow.getByTestId("composer");
     await composer.fill("/handoff-gui-test persist this");
     await composer.press("Enter");
-    await expect(firstWindow.locator(".error-banner")).toContainText(
+    await expect(firstWindow.getByTestId("composer-error-banner")).toContainText(
       "/handoff-gui-test requires terminal-only custom UI and is not supported in pi-gui yet.",
     );
   } finally {

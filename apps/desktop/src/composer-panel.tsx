@@ -8,6 +8,7 @@ import { ModelSelector } from "./model-selector";
 
 interface ComposerPanelProps {
   readonly selectedSession: SessionRecord;
+  readonly lastError?: string;
   readonly runtime?: RuntimeSnapshot;
   readonly activeSlashCommand?: ComposerSlashCommand;
   readonly activeSlashCommandMeta?: string;
@@ -44,6 +45,7 @@ interface ComposerPanelProps {
 
 export function ComposerPanel({
   selectedSession,
+  lastError,
   runtime,
   activeSlashCommand,
   activeSlashCommandMeta,
@@ -131,6 +133,11 @@ export function ComposerPanel({
           ) : null}
           {extensionDock ? (
             <ExtensionDock dock={extensionDock} expanded={extensionDockExpanded} onToggle={onToggleExtensionDock} />
+          ) : null}
+          {lastError ? (
+            <div className="composer__error error-banner" data-testid="composer-error-banner">
+              {lastError}
+            </div>
           ) : null}
           <div className="composer__editor">
             {showMentionMenu ? (

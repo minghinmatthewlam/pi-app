@@ -228,6 +228,10 @@
   margin-bottom: 16px;
 }
 
+.composer__error {
+  margin-bottom: 12px;
+}
+
 .timeline-item--assistant {
   max-width: 760px;
 }

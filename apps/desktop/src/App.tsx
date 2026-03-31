@@ -1065,8 +1065,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {snapshot.lastError ? <div className="error-banner">{snapshot.lastError}</div> : null}
-
                 <div className="timeline-pane" ref={timelinePaneRef} onScroll={handleTimelineScroll}>
                   {threadSearch.isOpen ? (
                     <ThreadSearchBar
@@ -1121,6 +1119,7 @@ export default function App() {
               onSubmit={submitComposerDraft}
               runningLabel={runningLabel}
               selectedSession={selectedSession}
+              lastError={snapshot.lastError}
               selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
               selectedSlashOption={slashMenu.selectedSlashOption}
               setComposerDraft={setComposerDraft}
@@ -1183,4 +1182,3 @@ function isNearBottom(element: HTMLDivElement): boolean {
   const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
   return remaining < 32;
 }
-
