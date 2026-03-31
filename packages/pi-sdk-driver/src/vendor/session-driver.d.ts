@@ -73,6 +73,14 @@ declare module "@pi-gui/session-driver" {
     readonly details?: unknown;
   }
 
+  export interface ExtensionCompatibilityIssue {
+    readonly capability: string;
+    readonly classification: "terminal-only";
+    readonly message: string;
+    readonly extensionPath?: string;
+    readonly eventName?: string;
+  }
+
   export interface SessionEventBase {
     readonly type: string;
     readonly sessionRef: SessionRef;
@@ -210,6 +218,11 @@ declare module "@pi-gui/session-driver" {
     readonly request: HostUiRequest;
   }
 
+  export interface ExtensionCompatibilityIssueEvent extends SessionEventBase {
+    readonly type: "extensionCompatibilityIssue";
+    readonly issue: ExtensionCompatibilityIssue;
+  }
+
   export interface SessionClosedEvent extends SessionEventBase {
     readonly type: "sessionClosed";
     readonly reason: "manual" | "ended" | "failed";
@@ -225,6 +238,7 @@ declare module "@pi-gui/session-driver" {
     | RunCompletedEvent
     | RunFailedEvent
     | HostUiRequestEvent
+    | ExtensionCompatibilityIssueEvent
     | SessionClosedEvent;
 
   export type SessionEventListener = (event: SessionDriverEvent) => void | Promise<void>;

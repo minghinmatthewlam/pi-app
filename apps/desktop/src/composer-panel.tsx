@@ -184,6 +184,9 @@ export function ComposerPanel({
                                 <span className="slash-menu__line">
                                   <span className="slash-menu__title">{command.title}</span>
                                   {command.sourceLabel ? <span className="slash-menu__skill-badge">{command.sourceLabel}</span> : null}
+                                  {command.compatibility?.status === "terminal-only" ? (
+                                    <span className="slash-menu__skill-badge slash-menu__skill-badge--warning">Terminal-only</span>
+                                  ) : null}
                                 </span>
                                 <span className="slash-menu__description">{command.description}</span>
                                 <span className="slash-menu__meta">

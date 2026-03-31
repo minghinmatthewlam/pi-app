@@ -1,6 +1,8 @@
 export type {
   AssistantDeltaEvent,
   CreateSessionOptions,
+  ExtensionCompatibilityIssue,
+  ExtensionCompatibilityIssueEvent,
   HostUiResponse,
   HostUiRequest,
   HostUiRequestEvent,

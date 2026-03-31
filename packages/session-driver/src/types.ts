@@ -109,6 +109,14 @@ export interface SessionErrorInfo {
   readonly details?: unknown;
 }
 
+export interface ExtensionCompatibilityIssue {
+  readonly capability: string;
+  readonly classification: "terminal-only";
+  readonly message: string;
+  readonly extensionPath?: string;
+  readonly eventName?: string;
+}
+
 export interface RunFailedEvent extends SessionEventBase {
   readonly type: "runFailed";
   readonly error: SessionErrorInfo;
@@ -198,6 +206,11 @@ export interface HostUiRequestEvent extends SessionEventBase {
   readonly request: HostUiRequest;
 }
 
+export interface ExtensionCompatibilityIssueEvent extends SessionEventBase {
+  readonly type: "extensionCompatibilityIssue";
+  readonly issue: ExtensionCompatibilityIssue;
+}
+
 export interface SessionClosedEvent extends SessionEventBase {
   readonly type: "sessionClosed";
   readonly reason: "manual" | "ended" | "failed";
@@ -213,6 +226,7 @@ export type SessionDriverEvent =
   | RunCompletedEvent
   | RunFailedEvent
   | HostUiRequestEvent
+  | ExtensionCompatibilityIssueEvent
   | SessionClosedEvent;
 
 export type SessionEventListener = (event: SessionDriverEvent) => void | Promise<void>;

@@ -1,10 +1,11 @@
 import { basename } from "node:path";
 import { expect, test } from "@playwright/test";
-import { launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
+import { createSessionViaIpc, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
 
 test("boots an existing workspace and starts a new thread through the real UI", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("core-smoke-workspace");
+  const promptText = "Smoke test thread";
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
@@ -20,12 +21,43 @@ test("boots an existing workspace and starts a new thread through the real UI", 
     await expect(prompt).toBeVisible();
     await expect(prompt).toBeFocused();
     await expect(window.getByRole("heading", { name: "Let's build" })).toBeVisible();
+    await prompt.fill(promptText);
 
     await window.getByRole("button", { name: "Start thread" }).click();
 
-    await expect(window.locator(".topbar__session")).toHaveText("New thread");
+    await expect(window.locator(".topbar__session")).toHaveText(promptText);
     await expect(window.getByTestId("composer")).toBeFocused();
-    await expect(window.getByTestId("transcript")).toContainText("Send a prompt to start the session.");
+    await expect(window.getByTestId("transcript")).toContainText(promptText);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("aligns workspace names with session titles in the sidebar gutter", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("aligned-sidebar-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+
+    await expect(window.getByTestId("workspace-list")).toContainText(basename(workspacePath));
+    await createSessionViaIpc(window, workspacePath, "Aligned session");
+
+    const workspaceGroup = window.locator(".workspace-group").first();
+    const workspaceName = workspaceGroup.locator(".workspace-row__name");
+    const sessionTitle = workspaceGroup.locator(".session-row__title", { hasText: "Aligned session" });
+
+    await expect(workspaceName).toBeVisible();
+    await expect(sessionTitle).toBeVisible();
+
+    const [workspaceBox, sessionBox] = await Promise.all([workspaceName.boundingBox(), sessionTitle.boundingBox()]);
+    expect(workspaceBox).not.toBeNull();
+    expect(sessionBox).not.toBeNull();
+    expect(Math.abs((workspaceBox?.x ?? 0) - (sessionBox?.x ?? 0))).toBeLessThanOrEqual(1);
   } finally {
     await harness.close();
   }

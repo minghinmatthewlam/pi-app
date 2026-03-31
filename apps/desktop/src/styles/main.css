@@ -1120,6 +1120,14 @@
   margin-left: auto;
 }
 
+.slash-menu__skill-badge--warning {
+  color: #a45a18;
+}
+
+.dark .slash-menu__skill-badge--warning {
+  color: #f0b25a;
+}
+
 .slash-menu__content {
   min-width: 0;
   display: grid;

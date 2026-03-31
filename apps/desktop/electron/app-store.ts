@@ -12,6 +12,7 @@ import type { HostUiResponse, SessionConfig, SessionDriverEvent, SessionRef, Wor
 import type { RuntimeCommandRecord, RuntimeLoginCallbacks, RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   type AppView,
+  type ExtensionCommandCompatibilityRecord,
   createEmptyDesktopAppState,
   type ComposerImageAttachment,
   type CreateSessionInput,
@@ -37,6 +38,14 @@ import {
   writePersistedUiState,
 } from "./app-store-persistence";
 import { JsonFileStore } from "./json-file-store";
+import {
+  type PendingRuntimeCommandExecution,
+  getLearnedCommandCompatibility,
+  pruneCompatibilityForRuntimeSnapshot,
+  recordLearnedCommandCompatibility,
+  restoreCompatibilityByWorkspace,
+  serializeCompatibilityByWorkspace,
+} from "./extension-command-compatibility";
 import {
   buildWorktreeRecords,
   buildWorkspaceRecords,
@@ -73,6 +82,9 @@ export class DesktopAppStore implements AppStoreInternals {
   readonly attachmentStore: JsonFileStore<ComposerImageAttachment[]>;
   readonly sessionState = new SessionStateMap();
   readonly runtimeByWorkspace = new Map<string, RuntimeSnapshot>();
+  readonly extensionCommandCompatibilityByWorkspace = new Map<string, Map<string, ExtensionCommandCompatibilityRecord>>();
+  readonly pendingRuntimeCommandsBySession = new Map<string, PendingRuntimeCommandExecution>();
+  private readonly reportedCompatibilityIssuesBySession = new Map<string, Set<string>>();
   private readonly initialWorkspacePaths: readonly string[];
   private persistUiStateTimer: NodeJS.Timeout | undefined;
   private readonly transcriptPersistTimers = new Map<string, NodeJS.Timeout>();
@@ -400,6 +412,12 @@ export class DesktopAppStore implements AppStoreInternals {
           this.sessionState.composerDraftsBySession.set(key, draft);
         }
       }
+      this.extensionCommandCompatibilityByWorkspace.clear();
+      for (const [workspaceId, records] of restoreCompatibilityByWorkspace(
+        persisted.extensionCommandCompatibilityByWorkspace,
+      )) {
+        this.extensionCommandCompatibilityByWorkspace.set(workspaceId, records);
+      }
       const initialWorkspacePaths = this.initialWorkspacePaths.map((path) => path.trim()).filter(Boolean);
       const knownWorkspaces = await this.driver.listWorkspaces();
       const workspacesToSync = new Map<string, string | undefined>();
@@ -508,9 +526,17 @@ export class DesktopAppStore implements AppStoreInternals {
         this.runtimeByWorkspace.delete(wsId);
       }
     }
+    for (const workspaceId of this.extensionCommandCompatibilityByWorkspace.keys()) {
+      if (!liveWorkspaceIds.has(workspaceId)) {
+        this.extensionCommandCompatibilityByWorkspace.delete(workspaceId);
+      }
+    }
 
     if (selectedWorkspaceId) {
       await this.ensureRuntimeLoaded(selectedWorkspaceId);
+    }
+    for (const runtime of this.runtimeByWorkspace.values()) {
+      pruneCompatibilityForRuntimeSnapshot(this.extensionCommandCompatibilityByWorkspace, runtime);
     }
 
     const activeView = options.activeView ?? this.state.activeView;
@@ -524,6 +550,7 @@ export class DesktopAppStore implements AppStoreInternals {
       runtimeByWorkspace: this.serializeRuntimeState(),
       sessionCommandsBySession: mapToRecord(this.sessionState.sessionCommandsBySession),
       sessionExtensionUiBySession: this.serializeSessionExtensionUiState(),
+      extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
       workspaceOrder: this.state.workspaceOrder,
       composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId, options.composerDraft),
@@ -679,6 +706,42 @@ export class DesktopAppStore implements AppStoreInternals {
     await this.refreshSessionCommands(sessionRef);
   }
 
+  getLearnedRuntimeCommandCompatibility(
+    workspaceId: string,
+    command: RuntimeCommandRecord,
+  ): ExtensionCommandCompatibilityRecord | undefined {
+    return getLearnedCommandCompatibility(this.extensionCommandCompatibilityByWorkspace, workspaceId, command);
+  }
+
+  beginRuntimeCommandExecution(sessionRef: SessionRef, command: RuntimeCommandRecord): void {
+    this.pendingRuntimeCommandsBySession.set(sessionKey(sessionRef), { command });
+  }
+
+  finishRuntimeCommandExecution(
+    sessionRef: SessionRef,
+    timestamp = new Date().toISOString(),
+  ): PendingRuntimeCommandExecution | undefined {
+    const key = sessionKey(sessionRef);
+    const pending = this.pendingRuntimeCommandsBySession.get(key);
+    if (!pending) {
+      return undefined;
+    }
+
+    this.pendingRuntimeCommandsBySession.delete(key);
+    if (!pending.blockedMessage) {
+      recordLearnedCommandCompatibility(this.extensionCommandCompatibilityByWorkspace, sessionRef.workspaceId, {
+        commandName: pending.command.name,
+        extensionPath: pending.command.sourceInfo.path,
+        status: "supported",
+        message: "Observed working in pi-gui.",
+        capability: "gui-safe",
+        updatedAt: timestamp,
+      });
+    }
+
+    return pending;
+  }
+
   clearExtensionUiForSession(sessionRef: SessionRef): void {
     const key = sessionKey(sessionRef);
     if (!this.sessionState.extensionUiBySession.has(key)) {
@@ -703,6 +766,39 @@ export class DesktopAppStore implements AppStoreInternals {
     for (const sessionRef of this.sessionRefsForWorkspace(workspaceId)) {
       this.clearExtensionUiForSession(sessionRef);
     }
+  }
+
+  private reportExtensionCompatibilityIssue(
+    sessionRef: SessionRef,
+    issue: Extract<SessionDriverEvent, { type: "extensionCompatibilityIssue" }>["issue"],
+    timestamp: string,
+  ): void {
+    const key = sessionKey(sessionRef);
+    const pending = this.pendingRuntimeCommandsBySession.get(key);
+    if (pending) {
+      const message = `/${pending.command.name} requires terminal-only ${formatCapabilityLabel(issue.capability)} and is not supported in pi-gui yet. Use pi in the terminal for this command.`;
+      pending.blockedMessage = message;
+      recordLearnedCommandCompatibility(this.extensionCommandCompatibilityByWorkspace, sessionRef.workspaceId, {
+        commandName: pending.command.name,
+        extensionPath: pending.command.sourceInfo.path,
+        status: "terminal-only",
+        message,
+        capability: issue.capability,
+        updatedAt: timestamp,
+      });
+      this.sessionState.sessionErrorsBySession.set(key, message);
+      return;
+    }
+
+    const fingerprint = `${issue.extensionPath ?? "<unknown>"}:${issue.eventName ?? "<unknown>"}:${issue.capability}`;
+    const seen = this.reportedCompatibilityIssuesBySession.get(key) ?? new Set<string>();
+    if (seen.has(fingerprint)) {
+      return;
+    }
+
+    seen.add(fingerprint);
+    this.reportedCompatibilityIssuesBySession.set(key, seen);
+    this.sessionState.sessionErrorsBySession.set(key, issue.message);
   }
 
   private sessionRefsForWorkspace(workspaceId: string): SessionRef[] {
@@ -826,9 +922,14 @@ export class DesktopAppStore implements AppStoreInternals {
         };
         await this.refreshSessionCommands(event.sessionRef);
         break;
+      case "extensionCompatibilityIssue":
+        this.reportExtensionCompatibilityIssue(event.sessionRef, event.issue, event.timestamp);
+        break;
       case "sessionClosed":
         this.sessionState.extensionUiBySession.delete(key);
         this.sessionState.sessionCommandsBySession.delete(key);
+        this.pendingRuntimeCommandsBySession.delete(key);
+        this.reportedCompatibilityIssuesBySession.delete(key);
         break;
       case "toolStarted":
       case "toolUpdated":
@@ -918,6 +1019,7 @@ export class DesktopAppStore implements AppStoreInternals {
         key,
         serializedExtensionUi ? serializeExtensionUiState(serializedExtensionUi) : undefined,
       ),
+      extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
       lastViewedAtBySession: updateRecordValue(
         state.lastViewedAtBySession,
         key,
@@ -959,6 +1061,7 @@ export class DesktopAppStore implements AppStoreInternals {
       activeView: this.state.activeView,
       composerDraft: this.state.composerDraft || undefined,
       composerDraftsBySession: mapToRecord(this.sessionState.composerDraftsBySession),
+      extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
       notificationPreferences: this.state.notificationPreferences,
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
       workspaceOrder: this.state.workspaceOrder.length > 0 ? this.state.workspaceOrder : undefined,
@@ -1183,6 +1286,23 @@ function updateRecordValue<T>(
     ...record,
     [key]: value,
   };
+}
+
+function formatCapabilityLabel(capability: string): string {
+  switch (capability) {
+    case "custom":
+      return "custom UI";
+    case "onTerminalInput":
+      return "terminal input";
+    case "setEditorComponent":
+      return "custom editor UI";
+    case "setFooter":
+      return "footer UI";
+    case "setHeader":
+      return "header UI";
+    default:
+      return capability.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+  }
 }
 
 function resolveSelectedWorkspaceIdFromCatalog(

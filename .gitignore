@@ -6,8 +6,9 @@ build/
 out/
 playwright-report/
 test-results/
+.claude/worktrees/
+.codex/worktrees/
 .DS_Store
 tmp-chat-parity.png
 tmp-latest-design.png
 tmp-sample-design.png
-plans/

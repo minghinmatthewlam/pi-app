@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { DesktopAppState, SessionRecord, WorkspaceRecord } from "../desktop-state";
+import type { DesktopAppState, ExtensionCommandCompatibilityRecord, SessionRecord, WorkspaceRecord } from "../desktop-state";
 import {
   buildModelOptions,
   isExactSlashCommand,
@@ -31,6 +31,7 @@ interface UseSlashMenuParams {
   readonly setComposerDraft: Dispatch<SetStateAction<string>>;
   readonly selectedRuntime: RuntimeSnapshot | undefined;
   readonly sessionCommands: readonly RuntimeCommandRecord[];
+  readonly commandCompatibility: readonly ExtensionCommandCompatibilityRecord[];
   readonly selectedSessionKey: string;
   readonly selectedSession: SessionRecord | undefined;
   readonly selectedWorkspace: WorkspaceRecord | undefined;
@@ -69,6 +70,7 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
     setComposerDraft,
     selectedRuntime,
     sessionCommands,
+    commandCompatibility,
     selectedSessionKey,
     selectedSession,
     selectedWorkspace,
@@ -89,7 +91,7 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
   const slashQuery = composerDraft.trimStart();
   const slashSections =
     slashQuery.startsWith("/")
-      ? buildSlashCommandSections(slashQuery, selectedRuntime, sessionCommands)
+      ? buildSlashCommandSections(slashQuery, selectedRuntime, sessionCommands, commandCompatibility)
       : [];
   const slashSuggestions = flattenSlashSections(slashSections);
   const exactSlashCommand = slashSuggestions.find((cmd) => isExactSlashCommand(slashQuery, cmd));

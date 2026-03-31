@@ -229,11 +229,6 @@ export async function waitForSessionByTitle(
   return session;
 }
 
-export async function selectWorkspace(window: Page, workspaceName: string): Promise<void> {
-  await window.locator(".workspace-row__select", { hasText: workspaceName }).click();
-  await expect(window.locator(".topbar__workspace")).toHaveText(workspaceName);
-}
-
 export async function selectSession(window: Page, sessionTitle: string): Promise<void> {
   await window.locator(".session-row__select", { hasText: sessionTitle }).click();
   await expect(window.locator(".topbar__session")).toHaveText(sessionTitle);
@@ -281,14 +276,6 @@ export async function startThreadFromSurface(
   await expect(window.getByTestId("composer")).toBeFocused({ timeout: 15_000 });
 }
 
-export async function renameCurrentThread(window: Page, title: string): Promise<void> {
-  const composer = window.getByTestId("composer");
-  await composer.fill(`/name ${title}`);
-  await composer.press("Enter");
-  await expect(window.locator(".topbar__session")).toHaveText(title);
-  await expect(composer).toHaveValue("");
-}
-
 export async function createNamedThread(
   window: Page,
   title: string,
@@ -297,13 +284,51 @@ export async function createNamedThread(
     readonly workspaceName?: string;
   } = {},
 ): Promise<void> {
-  await openNewThread(window);
-  await startThreadFromSurface(window, options);
-  await renameCurrentThread(window, title);
+  const { environment = "local", workspaceName } = options;
+  if (environment !== "local") {
+    await startThreadFromSurface(window, {
+      environment,
+      prompt: title,
+      workspaceName,
+    });
+    return;
+  }
+
+  const targetWorkspaceId = await window.evaluate(
+    ({ requestedWorkspaceName }) => {
+      const app = (window as PiAppWindow).piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      return app.getState().then((state) => {
+        if (requestedWorkspaceName) {
+          const namedWorkspace = state.workspaces.find((workspace) => workspace.name === requestedWorkspaceName);
+          if (!namedWorkspace) {
+            throw new Error(`Workspace not found: ${requestedWorkspaceName}`);
+          }
+          return namedWorkspace.id;
+        }
+
+        if (!state.selectedWorkspaceId) {
+          throw new Error("No selected workspace");
+        }
+
+        return state.selectedWorkspaceId;
+      });
+    },
+    { requestedWorkspaceName: workspaceName },
+  );
+
+  await createSessionViaIpc(window, targetWorkspaceId, title);
+  await selectSession(window, title);
+  const composer = window.getByTestId("composer");
+  await expect(composer).toBeVisible({ timeout: 15_000 });
+  await composer.click();
+  await expect(composer).toBeFocused({ timeout: 15_000 });
 }
 
 export async function createSessionViaIpc(window: Page, workspaceIdOrPath: string, title: string): Promise<void> {
-  await window.evaluate(async ({ workspaceTarget, targetTitle }) => {
+  const workspaceId = await window.evaluate(async ({ workspaceTarget, targetTitle }) => {
     const app = (window as PiAppWindow).piApp;
     if (!app) {
       throw new Error("piApp IPC bridge is unavailable");
@@ -315,7 +340,7 @@ export async function createSessionViaIpc(window: Page, workspaceIdOrPath: strin
       const workspace = state.workspaces.find((entry) => entry.id === workspaceTarget || entry.path === workspaceTarget);
       if (workspace) {
         await app.createSession({ workspaceId: workspace.id, title: targetTitle });
-        return;
+        return workspace.id;
       }
       await new Promise((resolve) => window.setTimeout(resolve, 100));
     }
@@ -323,5 +348,10 @@ export async function createSessionViaIpc(window: Page, workspaceIdOrPath: strin
     throw new Error(`Workspace not found: ${workspaceTarget}`);
   }, { workspaceTarget: workspaceIdOrPath, targetTitle: title });
 
-  await expect(window.locator(".topbar__session")).toHaveText(title);
+  await expect
+    .poll(async () => {
+      const state = await getDesktopState(window);
+      return state.workspaces.find((workspace) => workspace.id === workspaceId)?.sessions.some((session) => session.title === title) ?? false;
+    })
+    .toBe(true);
 }

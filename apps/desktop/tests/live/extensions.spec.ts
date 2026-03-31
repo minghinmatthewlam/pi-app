@@ -5,7 +5,6 @@ import {
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
-  startThreadFromSurface,
   writeProjectExtension,
 } from "../helpers/electron-app";
 
@@ -40,10 +39,16 @@ export default function customFallbackExtension(pi) {
   pi.registerCommand("read-mode-test", {
     description: "Terminal-only read mode",
     handler: async (_args, ctx) => {
-      const result = await ctx.ui.custom((_tui, _theme, _kb, done) => ({
-        render: () => ["read-mode"],
-        handleInput: () => done({ text: "should-not-send" }),
-      }));
+      let result;
+      try {
+        result = await ctx.ui.custom((_tui, _theme, _kb, done) => ({
+          render: () => ["read-mode"],
+          handleInput: () => done({ text: "should-not-send" }),
+        }));
+      } catch {
+        ctx.ui.notify("Read mode ignored", "info");
+        return;
+      }
       if (result?.text) {
         pi.sendUserMessage(result.text);
         return;
@@ -91,7 +96,8 @@ test("manages extensions and prefers runtime commands over colliding host action
 
   try {
     const window = await harness.firstWindow();
-    await startThreadFromSurface(window, { prompt: "Inspect extension surface" });
+    await createSessionViaIpc(window, workspacePath, "Inspect extension surface");
+    await expect(window.getByTestId("composer")).toBeVisible();
 
     await expect(window.locator(".topbar__session")).toHaveText("Extension Surface");
     await expect(window.getByTestId("extension-dock")).toBeVisible();
@@ -132,6 +138,28 @@ test("manages extensions and prefers runtime commands over colliding host action
     await expect(window.locator(".topbar__session")).toHaveText("Extension Surface");
     await expect(window.getByTestId("extension-dock-summary")).toHaveText("Demo ready");
     await expect(window.getByTestId("extension-dock-body")).toHaveCount(0);
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        if (!state.selectedWorkspaceId || !state.selectedSessionId) {
+          return false;
+        }
+        const selectedSessionKey = `${state.selectedWorkspaceId}:${state.selectedSessionId}`;
+        return (
+          state.sessionCommandsBySession[selectedSessionKey]?.some((command) => command.name === "settings") ?? false
+        );
+      })
+      .toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const state = await getDesktopState(window);
+          const selectedWorkspace = state.workspaces.find((entry) => entry.id === state.selectedWorkspaceId);
+          return selectedWorkspace?.sessions.find((session) => session.id === state.selectedSessionId)?.status ?? "unknown";
+        },
+        { timeout: 30_000 },
+      )
+      .toBe("idle");
 
     await composer.fill("/se");
     const slashMenu = window.getByTestId("slash-menu");

@@ -7,6 +7,7 @@ import {
   hasRuntimeSlashCommand,
   incompleteComposerCommandMessage,
   parseComposerCommand,
+  resolveRuntimeSlashCommand,
 } from "../src/composer-commands";
 import { appendUserMessage, clearActiveAssistantMessage } from "./app-store-timeline";
 import {
@@ -112,6 +113,9 @@ export async function submitComposer(store: AppStoreInternals, textInput: string
   const runtime = store.runtimeByWorkspace.get(sessionRef.workspaceId);
   const sessionCommands = store.sessionState.sessionCommandsBySession.get(sessionKey(sessionRef)) ?? [];
   const runtimeSlashCommand = hasRuntimeSlashCommand(text, runtime, sessionCommands);
+  const resolvedRuntimeSlashCommand = runtimeSlashCommand
+    ? resolveRuntimeSlashCommand(text, runtime, sessionCommands)
+    : undefined;
 
   if (text.startsWith("/") && !runtimeSlashCommand) {
     const handled = await runComposerCommand(store, sessionRef, text);
@@ -122,14 +126,39 @@ export async function submitComposer(store: AppStoreInternals, textInput: string
 
   const key = sessionKey(sessionRef);
   try {
+    if (resolvedRuntimeSlashCommand) {
+      const learnedCompatibility = store.getLearnedRuntimeCommandCompatibility(sessionRef.workspaceId, resolvedRuntimeSlashCommand);
+      if (learnedCompatibility?.status === "terminal-only") {
+        store.sessionState.composerDraftsBySession.set(key, textInput);
+        if (attachments.length > 0) {
+          store.sessionState.composerAttachmentsBySession.set(key, cloneComposerImageAttachments(attachments));
+          await store.persistComposerAttachments(key, attachments);
+        }
+        store.state = {
+          ...store.state,
+          composerDraft: textInput,
+          composerAttachments: cloneComposerImageAttachments(attachments),
+          revision: store.state.revision + 1,
+        };
+        return store.withError(learnedCompatibility.message);
+      }
+
+      store.beginRuntimeCommandExecution(sessionRef, resolvedRuntimeSlashCommand);
+    }
     await sendMessageToSession(store, sessionRef, text, attachments);
+    const runtimeCommandOutcome = resolvedRuntimeSlashCommand
+      ? store.finishRuntimeCommandExecution(sessionRef)
+      : undefined;
     if (runtimeSlashCommand) {
       await store.refreshSessionCommandsFor(sessionRef);
     }
     return store.refreshState({
-      clearLastError: true,
+      clearLastError: !runtimeCommandOutcome?.blockedMessage,
     });
   } catch (error) {
+    if (resolvedRuntimeSlashCommand) {
+      store.finishRuntimeCommandExecution(sessionRef);
+    }
     if (textInput) {
       store.sessionState.composerDraftsBySession.set(key, textInput);
     }

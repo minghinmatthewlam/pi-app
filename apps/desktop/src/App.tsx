@@ -217,6 +217,9 @@ export default function App() {
   const settingsRuntime = settingsWorkspace ? snapshot?.runtimeByWorkspace[settingsWorkspace.id] : undefined;
   const skillsRuntime = skillsWorkspace ? snapshot?.runtimeByWorkspace[skillsWorkspace.id] : undefined;
   const extensionsRuntime = extensionsWorkspace ? snapshot?.runtimeByWorkspace[extensionsWorkspace.id] : undefined;
+  const extensionsCommandCompatibility = extensionsWorkspace
+    ? snapshot?.extensionCommandCompatibilityByWorkspace[extensionsWorkspace.id] ?? []
+    : [];
   const newThreadWorkspace =
     rootWorkspaceOptions.find((entry) => entry.id === newThreadRootWorkspaceId) ?? rootWorkspaceOptions[0];
   const newThreadRuntime = newThreadWorkspace ? snapshot?.runtimeByWorkspace[newThreadWorkspace.id] : undefined;
@@ -239,6 +242,9 @@ export default function App() {
   const selectedSessionKey = `${selectedWorkspace?.id ?? ""}:${selectedSession?.id ?? ""}`;
   const selectedSessionCommands = selectedSession ? snapshot?.sessionCommandsBySession[selectedSessionKey] ?? [] : [];
   const selectedExtensionUi = selectedSession ? snapshot?.sessionExtensionUiBySession[selectedSessionKey] : undefined;
+  const selectedWorkspaceCommandCompatibility = selectedWorkspace
+    ? snapshot?.extensionCommandCompatibilityByWorkspace[selectedWorkspace.id] ?? []
+    : [];
   const selectedExtensionDock = useMemo(() => buildExtensionDockModel(selectedExtensionUi), [selectedExtensionUi]);
   const displayedSessionTitle = selectedExtensionUi?.title ?? selectedSession?.title ?? "";
   const activeExtensionDialog = selectedExtensionUi?.pendingDialogs[0];
@@ -281,6 +287,7 @@ export default function App() {
     setComposerDraft,
     selectedRuntime,
     sessionCommands: selectedSessionCommands,
+    commandCompatibility: selectedWorkspaceCommandCompatibility,
     selectedSessionKey,
     selectedSession,
     selectedWorkspace,
@@ -1001,6 +1008,7 @@ export default function App() {
         <ExtensionsView
           workspace={extensionsWorkspace}
           runtime={extensionsRuntime}
+          commandCompatibility={extensionsCommandCompatibility}
           onOpenExtensionFolder={handleOpenExtensionFolder}
           onRefresh={() => {
             if (!extensionsWorkspace) {

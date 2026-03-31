@@ -37,6 +37,7 @@
     "test:live:tool-calls": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/tool-calls.spec.ts",
     "test:live:extension-dock": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/extension-dock.spec.ts",
     "test:live:extension-dock-reload": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/extension-dock-reload.spec.ts",
+    "test:live:extension-command-compatibility": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/extension-command-compatibility.spec.ts",
     "test:live:extensions": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/extensions.spec.ts",
     "test:live:extensions-dialogs": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/extensions-dialogs.spec.ts",
     "test:live:extensions-session-isolation": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/extensions-session-isolation.spec.ts",

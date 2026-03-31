@@ -5,6 +5,7 @@ import type {
   RuntimeSettingsSnapshot,
   RuntimeSnapshot,
 } from "@pi-gui/session-driver/runtime-types";
+import type { ExtensionCommandCompatibilityRecord } from "./desktop-state";
 import { titleCase } from "./string-utils";
 
 export type ComposerSlashCommandKind =
@@ -32,6 +33,7 @@ export interface ComposerSlashCommand {
   readonly section: "runtime" | "host";
   readonly runtimeCommand?: RuntimeCommandRecord;
   readonly sourceLabel?: string;
+  readonly compatibility?: ExtensionCommandCompatibilityRecord;
 }
 
 export interface ComposerSlashCommandSection {
@@ -215,9 +217,13 @@ export function buildSlashCommandSections(
   query: string,
   runtime: RuntimeSnapshot | undefined,
   sessionCommands: readonly RuntimeCommandRecord[],
+  compatibilityRecords: readonly ExtensionCommandCompatibilityRecord[] = [],
 ): readonly ComposerSlashCommandSection[] {
   const normalizedQuery = query.trim().toLowerCase();
   const availableRuntimeCommands = resolveRuntimeCommands(runtime, sessionCommands);
+  const compatibilityByKey = new Map(
+    compatibilityRecords.map((record) => [`${record.extensionPath}::${record.commandName}`, record] as const),
+  );
   const runtimeMatches = availableRuntimeCommands
     .map<ComposerSlashCommand>((command) => ({
       id: `runtime:${command.source}:${command.name}`,
@@ -230,6 +236,7 @@ export function buildSlashCommandSections(
       section: "runtime",
       runtimeCommand: command,
       sourceLabel: formatRuntimeSourceLabel(command),
+      compatibility: compatibilityByKey.get(`${command.sourceInfo.path}::${command.name}`),
     }))
     .filter((command) => matchesCommand(command, normalizedQuery));
   const hostMatches = HOST_ACTION_SLASH_COMMANDS.filter((command) => matchesCommand(command, normalizedQuery));
@@ -300,14 +307,22 @@ export function hasRuntimeSlashCommand(
   runtime: RuntimeSnapshot | undefined,
   sessionCommands: readonly RuntimeCommandRecord[],
 ): boolean {
+  return Boolean(resolveRuntimeSlashCommand(text, runtime, sessionCommands));
+}
+
+export function resolveRuntimeSlashCommand(
+  text: string,
+  runtime: RuntimeSnapshot | undefined,
+  sessionCommands: readonly RuntimeCommandRecord[],
+): RuntimeCommandRecord | undefined {
   const trimmed = text.trim();
   if (!trimmed.startsWith("/")) {
-    return false;
+    return undefined;
   }
 
   const spaceIndex = trimmed.indexOf(" ");
   const commandName = normalizeRuntimeCommandName(spaceIndex === -1 ? trimmed : trimmed.slice(0, spaceIndex));
-  return resolveRuntimeCommands(runtime, sessionCommands).some((command) => command.name === commandName);
+  return resolveRuntimeCommands(runtime, sessionCommands).find((command) => command.name === commandName);
 }
 
 function normalizeRuntimeCommandName(value: string): string {
@@ -402,9 +417,13 @@ function matchesCommand(command: ComposerSlashCommand, normalizedQuery: string):
     return true;
   }
 
-  return [command.command, command.title, command.description, command.sourceLabel ?? ""].some((value) =>
-    value.toLowerCase().includes(normalizedQuery),
-  );
+  return [
+    command.command,
+    command.title,
+    command.description,
+    command.sourceLabel ?? "",
+    command.compatibility?.status === "terminal-only" ? "terminal-only" : "",
+  ].some((value) => value.toLowerCase().includes(normalizedQuery));
 }
 
 function describeProvider(provider: RuntimeProviderRecord): string {

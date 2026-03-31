@@ -7,7 +7,6 @@ import {
   makeUserDataDir,
   makeWorkspace,
   selectSession,
-  selectWorkspace,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
@@ -68,16 +67,14 @@ test("navigates across folders and sessions through the sidebar", async () => {
     await waitForWorkspaceByPath(window, alphaPath);
     await waitForWorkspaceByPath(window, betaPath);
 
-    await selectWorkspace(window, basename(alphaPath));
-    await createNamedThread(window, "Alpha session one");
+    await createNamedThread(window, "Alpha session one", { workspaceName: basename(alphaPath) });
     await expect(window.locator(".session-row", { hasText: "Alpha session one" })).toHaveAttribute(
       "data-sidebar-indicator",
       "none",
     );
 
-    await createNamedThread(window, "Alpha session two");
-    await selectWorkspace(window, basename(betaPath));
-    await createNamedThread(window, "Beta session one");
+    await createNamedThread(window, "Alpha session two", { workspaceName: basename(alphaPath) });
+    await createNamedThread(window, "Beta session one", { workspaceName: basename(betaPath) });
 
     await expect(window.locator(".topbar__session")).toHaveText("Beta session one");
     await expect(window.locator(".session-row", { hasText: "Alpha session two" })).toHaveAttribute(
@@ -88,16 +85,26 @@ test("navigates across folders and sessions through the sidebar", async () => {
     await expect(window.getByTestId("workspace-list")).toContainText(basename(alphaPath));
     await expect(window.getByTestId("workspace-list")).toContainText(basename(betaPath));
 
-    await selectWorkspace(window, basename(alphaPath));
     await selectSession(window, "Alpha session one");
     await selectSession(window, "Beta session one");
+
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        return {
+          alphaSessions: state.workspaces.find((workspace) => workspace.path === alphaPath)?.sessions.length ?? 0,
+          betaSessions: state.workspaces.find((workspace) => workspace.path === betaPath)?.sessions.length ?? 0,
+        };
+      })
+      .toEqual({
+        alphaSessions: 2,
+        betaSessions: 1,
+      });
 
     const state = await getDesktopState(window);
     const selectedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
     expect(selectedWorkspace?.path).toBeTruthy();
     expect(state.selectedSessionId).not.toBe("");
-    expect(state.workspaces.find((workspace) => workspace.path === alphaPath)?.sessions).toHaveLength(2);
-    expect(state.workspaces.find((workspace) => workspace.path === betaPath)?.sessions).toHaveLength(1);
   } finally {
     await harness.close();
   }

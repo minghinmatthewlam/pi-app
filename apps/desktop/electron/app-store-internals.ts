@@ -1,10 +1,17 @@
 import type { PiSdkDriver, JsonCatalogStore } from "@pi-gui/pi-sdk-driver";
 import type { SessionConfig, SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
-import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { AppView, ComposerImageAttachment, DesktopAppState, TranscriptMessage } from "../src/desktop-state";
+import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type {
+  AppView,
+  ComposerImageAttachment,
+  DesktopAppState,
+  ExtensionCommandCompatibilityRecord,
+  TranscriptMessage,
+} from "../src/desktop-state";
 import type { SessionStateMap } from "./session-state-map";
 import type { GitWorktreeManager } from "./worktree-manager";
 import type { JsonFileStore } from "./json-file-store";
+import type { PendingRuntimeCommandExecution } from "./extension-command-compatibility";
 
 /**
  * Internal interface shared by method-group files
@@ -16,6 +23,8 @@ export interface AppStoreInternals {
   state: DesktopAppState;
   readonly sessionState: SessionStateMap;
   readonly runtimeByWorkspace: Map<string, RuntimeSnapshot>;
+  readonly extensionCommandCompatibilityByWorkspace: Map<string, Map<string, ExtensionCommandCompatibilityRecord>>;
+  readonly pendingRuntimeCommandsBySession: Map<string, PendingRuntimeCommandExecution>;
 
   /* ── Infrastructure ────────────────────────────────────── */
   readonly driver: PiSdkDriver;
@@ -36,6 +45,12 @@ export interface AppStoreInternals {
   ensureSessionReady(sessionRef: SessionRef): Promise<void>;
   ensureSessionSubscribed(sessionRef: SessionRef): Promise<void>;
   refreshSessionCommandsFor(sessionRef: SessionRef): Promise<void>;
+  getLearnedRuntimeCommandCompatibility(
+    workspaceId: string,
+    command: RuntimeCommandRecord,
+  ): ExtensionCommandCompatibilityRecord | undefined;
+  beginRuntimeCommandExecution(sessionRef: SessionRef, command: RuntimeCommandRecord): void;
+  finishRuntimeCommandExecution(sessionRef: SessionRef, timestamp?: string): PendingRuntimeCommandExecution | undefined;
   clearExtensionUiForSession(sessionRef: SessionRef): void;
   cancelPendingDialogsForSession(sessionRef: SessionRef): Promise<void>;
   persistUiState(): Promise<void>;

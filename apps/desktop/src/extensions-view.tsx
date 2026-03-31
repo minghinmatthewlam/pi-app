@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import type { RuntimeExtensionRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { WorkspaceRecord } from "./desktop-state";
+import type { ExtensionCommandCompatibilityRecord, WorkspaceRecord } from "./desktop-state";
 import { RefreshIcon } from "./icons";
 
 interface ExtensionsViewProps {
   readonly workspace?: WorkspaceRecord;
   readonly runtime?: RuntimeSnapshot;
+  readonly commandCompatibility?: readonly ExtensionCommandCompatibilityRecord[];
   readonly onRefresh: () => void;
   readonly onOpenExtensionFolder: (filePath: string) => void;
   readonly onToggleExtension: (filePath: string, enabled: boolean) => void;
@@ -14,6 +15,7 @@ interface ExtensionsViewProps {
 export function ExtensionsView({
   workspace,
   runtime,
+  commandCompatibility = [],
   onRefresh,
   onOpenExtensionFolder,
   onToggleExtension,
@@ -44,6 +46,15 @@ export function ExtensionsView({
   }, [extensions, query]);
   const selectedExtension =
     filteredExtensions.find((extension) => extension.path === selectedExtensionPath) ?? filteredExtensions[0];
+  const selectedCompatibilityRecords = useMemo(
+    () =>
+      selectedExtension
+        ? commandCompatibility
+            .filter((record) => record.extensionPath === selectedExtension.path)
+            .sort((left, right) => left.commandName.localeCompare(right.commandName))
+        : [],
+    [commandCompatibility, selectedExtension],
+  );
 
   if (!workspace) {
     return (
@@ -156,6 +167,10 @@ export function ExtensionsView({
                 </div>
 
                 <ExtensionContributionSection title="Commands" items={selectedExtension.commands} emptyLabel="No commands contributed." />
+                <ExtensionCompatibilitySection
+                  commands={selectedExtension.commands}
+                  compatibilityRecords={selectedCompatibilityRecords}
+                />
                 <ExtensionContributionSection title="Tools" items={selectedExtension.tools} emptyLabel="No tools contributed." />
                 <ExtensionContributionSection title="Flags" items={selectedExtension.flags} emptyLabel="No flags contributed." />
                 <ExtensionContributionSection title="Shortcuts" items={selectedExtension.shortcuts} emptyLabel="No shortcuts contributed." />
@@ -238,6 +253,50 @@ function ExtensionDiagnostics({
         ) : (
           <div className="skill-detail__description">No diagnostics reported.</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ExtensionCompatibilitySection({
+  commands,
+  compatibilityRecords,
+}: {
+  readonly commands: readonly string[];
+  readonly compatibilityRecords: readonly ExtensionCommandCompatibilityRecord[];
+}) {
+  const supported = compatibilityRecords.filter((record) => record.status === "supported");
+  const terminalOnly = compatibilityRecords.filter((record) => record.status === "terminal-only");
+  const unknown = commands.filter((commandName) =>
+    compatibilityRecords.every(
+      (record) => record.commandName !== commandName && !record.commandName.startsWith(`${commandName}:`),
+    ),
+  );
+
+  return (
+    <div className="skill-detail__meta-list">
+      <div>
+        <div className="skill-detail__meta-label">Command compatibility</div>
+        <div className="skill-detail__description">
+          Learned from real GUI execution. Unlisted commands remain unknown until exercised.
+        </div>
+        <div className="extension-detail__tokens">
+          {supported.map((record) => (
+            <span className="slash-menu__skill-badge" key={`supported:${record.commandName}`}>
+              {record.commandName} · GUI-compatible
+            </span>
+          ))}
+          {terminalOnly.map((record) => (
+            <span className="slash-menu__skill-badge slash-menu__skill-badge--warning" key={`terminal:${record.commandName}`}>
+              {record.commandName} · Terminal-only
+            </span>
+          ))}
+          {unknown.map((commandName) => (
+            <span className="slash-menu__skill-badge" key={`unknown:${commandName}`}>
+              {commandName} · Unknown
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   );

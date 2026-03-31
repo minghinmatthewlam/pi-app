@@ -37,6 +37,10 @@ import {
   createEmptyExtensionUiState,
   type ExtensionUiState,
 } from "./extension-ui-state.js";
+import {
+  createUnsupportedHostUiError,
+  parseUnsupportedHostUiErrorMessage,
+} from "./unsupported-host-ui.js";
 import { normalizeRuntimeCommandName, skillCommandName } from "./runtime-command-utils.js";
 import {
   buildSnapshot,
@@ -601,6 +605,15 @@ export class SessionSupervisor {
       uiContext: this.createExtensionUiContext(record),
       commandContextActions: this.createCommandContextActions(record),
       onError: (error) => {
+        const unsupportedIssue = parseUnsupportedHostUiErrorMessage(error.error);
+        if (unsupportedIssue) {
+          this.emitExtensionCompatibilityIssue(record, {
+            ...unsupportedIssue,
+            ...(error.extensionPath ? { extensionPath: error.extensionPath } : {}),
+            ...(error.event ? { eventName: error.event } : {}),
+          });
+          return;
+        }
         void this.emitExtensionError(record, error.extensionPath, error.event, error.error);
       },
     });
@@ -769,10 +782,13 @@ export class SessionSupervisor {
           title,
         });
       },
-      // pi-gui does not render arbitrary TUI custom components. Returning null
-      // lets extensions that handle cancellation degrade cleanly instead of
-      // continuing with an undefined result.
-      custom: async () => null as never,
+      // pi-gui does not render arbitrary TUI custom components. Throwing a
+      // typed unsupported-host error allows extensions to catch and degrade,
+      // while uncaught command paths fail fast and are surfaced cleanly by
+      // the desktop host.
+      custom: async () => {
+        throw createUnsupportedHostUiError("custom");
+      },
       pasteToEditor: (text) => {
         this.emitHostUiRequest(record, {
           kind: "editorText",
@@ -857,6 +873,24 @@ export class SessionSupervisor {
       level: "error",
       message: `[${extensionPath}] ${eventName}: ${error}`,
     });
+  }
+
+  private emitExtensionCompatibilityIssue(
+    record: ManagedSessionRecord,
+    issue: Extract<SessionDriverEvent, { type: "extensionCompatibilityIssue" }>["issue"],
+  ): void {
+    this.queueDriverEvents(
+      record,
+      [
+        {
+          type: "extensionCompatibilityIssue",
+          sessionRef: record.ref,
+          timestamp: nowIso(),
+          issue,
+        },
+      ],
+      { persistSnapshot: false },
+    );
   }
 
   private applyExtensionUiRequest(
