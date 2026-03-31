@@ -7,6 +7,7 @@ import { DesktopAppStore } from "./app-store";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
 import { listWorkspaceFiles } from "./app-store-files";
 import { NotificationManager } from "./notification-manager";
+import { initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
 import type { ThemeMode } from "../src/desktop-state";
 import { desktopIpc, getDesktopCommandFromShortcut } from "../src/ipc";
@@ -26,6 +27,7 @@ const themeManager = new ThemeManager();
 let mainWindow: BrowserWindow | null = null;
 let stopPublishingState: (() => void) | undefined;
 let stopNotifications: (() => void) | undefined;
+let stopUpdateChecker: (() => void) | undefined;
 
 const SUPPORTED_IMAGE_TYPES = [
   { extension: "png", mimeType: "image/png" },
@@ -117,6 +119,9 @@ app.whenReady().then(async () => {
   });
   await store.initialize();
   stopNotifications = new NotificationManager(store, () => mainWindow).start();
+  if (!isDev) {
+    stopUpdateChecker = initUpdateChecker();
+  }
 
   ipcMain.handle(desktopIpc.ping, () => "pi desktop ready");
   ipcMain.handle(desktopIpc.getThemeMode, () => themeManager.getMode());
@@ -320,6 +325,8 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   stopNotifications?.();
   stopNotifications = undefined;
+  stopUpdateChecker?.();
+  stopUpdateChecker = undefined;
   if (process.platform !== "darwin") {
     app.quit();
   }
@@ -328,6 +335,8 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   stopNotifications?.();
   stopNotifications = undefined;
+  stopUpdateChecker?.();
+  stopUpdateChecker = undefined;
 });
 
 function resolveInitialWorkspacePaths(): readonly string[] {
