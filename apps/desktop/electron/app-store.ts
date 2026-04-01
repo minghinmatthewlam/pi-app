@@ -1590,31 +1590,27 @@ function mergeModelSettingsSnapshot(
   globalSettings: ModelSettingsSnapshot,
   projectSettings: Record<string, unknown>,
 ): ModelSettingsSnapshot {
-  const merged: ModelSettingsSnapshot = {
+  const defaultProvider =
+    typeof projectSettings.defaultProvider === "string"
+      ? projectSettings.defaultProvider
+      : globalSettings.defaultProvider;
+  const defaultModelId =
+    typeof projectSettings.defaultModel === "string"
+      ? projectSettings.defaultModel
+      : globalSettings.defaultModelId;
+  const defaultThinkingLevel =
+    typeof projectSettings.defaultThinkingLevel === "string"
+      ? (projectSettings.defaultThinkingLevel as RuntimeSettingsSnapshot["defaultThinkingLevel"])
+      : globalSettings.defaultThinkingLevel;
+
+  return {
     enabledModelPatterns: Array.isArray(projectSettings.enabledModels)
       ? projectSettings.enabledModels.filter((value): value is string => typeof value === "string")
       : [...globalSettings.enabledModelPatterns],
+    ...(defaultProvider ? { defaultProvider } : {}),
+    ...(defaultModelId ? { defaultModelId } : {}),
+    ...(defaultThinkingLevel ? { defaultThinkingLevel } : {}),
   };
-
-  if (typeof projectSettings.defaultProvider === "string") {
-    merged.defaultProvider = projectSettings.defaultProvider;
-  } else if (globalSettings.defaultProvider) {
-    merged.defaultProvider = globalSettings.defaultProvider;
-  }
-
-  if (typeof projectSettings.defaultModel === "string") {
-    merged.defaultModelId = projectSettings.defaultModel;
-  } else if (globalSettings.defaultModelId) {
-    merged.defaultModelId = globalSettings.defaultModelId;
-  }
-
-  if (typeof projectSettings.defaultThinkingLevel === "string") {
-    merged.defaultThinkingLevel = projectSettings.defaultThinkingLevel as RuntimeSettingsSnapshot["defaultThinkingLevel"];
-  } else if (globalSettings.defaultThinkingLevel) {
-    merged.defaultThinkingLevel = globalSettings.defaultThinkingLevel;
-  }
-
-  return merged;
 }
 
 function hasStoredModelSettings(settings: ModelSettingsSnapshot | undefined): settings is ModelSettingsSnapshot {
