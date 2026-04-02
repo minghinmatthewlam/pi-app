@@ -415,7 +415,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       return;
     }
 
-    context.settingsManager.setEnabledModels(nextPatterns);
+    context.settingsManager.setEnabledModels([...nextPatterns]);
     await context.settingsManager.flush();
   }
 
