@@ -2048,6 +2048,22 @@ function modelSettingsEqual(left: ModelSettingsSnapshot, right: ModelSettingsSna
   );
 }
 
+function mergeEnabledModelPatterns(
+  existingPatterns: readonly string[],
+  providerPatterns: readonly string[],
+): readonly string[] {
+  const merged = [...existingPatterns];
+  const seen = new Set(existingPatterns);
+  for (const pattern of providerPatterns) {
+    if (seen.has(pattern)) {
+      continue;
+    }
+    seen.add(pattern);
+    merged.push(pattern);
+  }
+  return merged;
+}
+
 function formatCapabilityLabel(capability: string): string {
   switch (capability) {
     case "custom":
