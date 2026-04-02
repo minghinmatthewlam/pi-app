@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { getDesktopState, launchDesktop, makeUserDataDir, makeWorkspace, openNewThread, pasteTinyPng, seedAgentDir } from "../helpers/electron-app";
@@ -150,6 +151,62 @@ test("new thread routes disabled-model recovery to settings models", async () =>
     await window.getByTestId("model-onboarding-notice").getByRole("button", { name: "Open Settings > Models" }).click();
     await expect(window.getByTestId("settings-surface")).toBeVisible();
     await expect(window.locator(".view-header__title")).toHaveText("Models");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("refreshing after a provider becomes available auto-enables that provider's models", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("new-thread-provider-connect-workspace");
+  await seedAgentDir(agentDir, {
+    withOpenAiAuth: false,
+    withDefaultModel: false,
+    enabledModels: ["fake-provider/fake-model"],
+  });
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+    scrubProviderEnv: true,
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await openNewThread(window);
+
+    const composer = window.getByTestId("new-thread-composer");
+    const notice = window.getByTestId("model-onboarding-notice");
+    const modelBadge = window.locator(".new-thread__hint .model-selector__badge").first();
+    await composer.fill("connect provider");
+    await expect(modelBadge).toHaveText("No models available");
+    await expect(notice).toContainText("Open Settings > Providers");
+
+    await writeFile(
+      join(agentDir, "auth.json"),
+      `${JSON.stringify({ openai: { type: "api_key", key: "test-openai-key" } }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const selectedWorkspaceId = (await getDesktopState(window)).selectedWorkspaceId;
+    expect(selectedWorkspaceId).toBeTruthy();
+    await window.evaluate(async ({ workspaceId }) => {
+      const app = window.piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      await app.refreshRuntime(workspaceId);
+    }, { workspaceId: selectedWorkspaceId });
+
+    await expect(modelBadge).toHaveText("No default model");
+    await expect(notice).toContainText("No default model set");
+
+    await modelBadge.click();
+    const dropdown = window.locator(".new-thread__hint .model-selector__dropdown").first();
+    await expect(dropdown).toContainText("GPT-5");
+    await expect(dropdown).toContainText("GPT-4o");
   } finally {
     await harness.close();
   }

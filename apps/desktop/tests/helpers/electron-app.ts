@@ -37,6 +37,7 @@ export interface LaunchDesktopOptions {
   readonly notificationLogPath?: string;
   readonly testMode?: DesktopTestMode;
   readonly agentDir?: string;
+  readonly scrubProviderEnv?: boolean;
 }
 
 export interface SeedAgentDirOptions {
@@ -50,18 +51,33 @@ export async function launchDesktop(
   options: readonly string[] | LaunchDesktopOptions = [],
 ): Promise<DesktopHarness> {
   const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
+  const env = {
+    ...process.env,
+    PI_APP_USER_DATA_DIR: userDataDir,
+    PI_APP_INITIAL_WORKSPACES: (normalized.initialWorkspaces ?? []).join(delimiter),
+    PI_APP_TEST_MODE: normalized.testMode ?? process.env.PI_APP_TEST_MODE ?? "foreground",
+    ...(normalized.agentDir ? { PI_CODING_AGENT_DIR: normalized.agentDir } : {}),
+    ...(normalized.notificationLogPath ? { PI_APP_NOTIFICATION_LOG_PATH: normalized.notificationLogPath } : {}),
+    PI_APP_OPEN_DEVTOOLS: "0",
+  };
+  if (normalized.scrubProviderEnv) {
+    for (const key of [
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "GOOGLE_API_KEY",
+      "GEMINI_API_KEY",
+      "AZURE_OPENAI_API_KEY",
+      "XAI_API_KEY",
+      "MISTRAL_API_KEY",
+      "DEEPSEEK_API_KEY",
+    ]) {
+      delete env[key];
+    }
+  }
   const electronApp = await electron.launch({
     args: [desktopDir],
     cwd: desktopDir,
-    env: {
-      ...process.env,
-      PI_APP_USER_DATA_DIR: userDataDir,
-      PI_APP_INITIAL_WORKSPACES: (normalized.initialWorkspaces ?? []).join(delimiter),
-      PI_APP_TEST_MODE: normalized.testMode ?? process.env.PI_APP_TEST_MODE ?? "foreground",
-      ...(normalized.agentDir ? { PI_CODING_AGENT_DIR: normalized.agentDir } : {}),
-      ...(normalized.notificationLogPath ? { PI_APP_NOTIFICATION_LOG_PATH: normalized.notificationLogPath } : {}),
-      PI_APP_OPEN_DEVTOOLS: "0",
-    },
+    env,
   });
 
   let page: Page | undefined;

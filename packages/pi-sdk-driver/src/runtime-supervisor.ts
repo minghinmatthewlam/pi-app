@@ -79,6 +79,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     this.authStorage.reload();
     this.modelRegistry.refresh();
     await context.resourceLoader.reload();
+    await this.autoEnableModelsForAuthenticatedProviders(context);
     return this.buildSnapshot(context);
   }
 
@@ -87,6 +88,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     await this.authStorage.login(providerId, callbacks);
     this.modelRegistry.refresh();
     await context.resourceLoader.reload();
+    await this.autoEnableModelsForAuthenticatedProviders(context, [providerId]);
     return this.buildSnapshot(context);
   }
 
@@ -376,6 +378,47 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       );
   }
 
+  private async autoEnableModelsForAuthenticatedProviders(
+    context: RuntimeContext,
+    providerIds?: readonly string[],
+  ): Promise<void> {
+    const currentPatterns = context.settingsManager.getEnabledModels() ?? [];
+    if (currentPatterns.length === 0) {
+      return;
+    }
+
+    const providers = await this.buildProviderRecords();
+    const models = await this.buildModelRecords();
+    const hasSelectableModels = models.some((model) =>
+      model.available && currentPatterns.includes(`${model.providerId}/${model.modelId}`),
+    );
+    const candidateProviderIds =
+      providerIds && providerIds.length > 0
+        ? providerIds
+        : hasSelectableModels
+          ? []
+          : providers
+              .filter((provider) => provider.hasAuth)
+              .map((provider) => provider.id);
+    if (candidateProviderIds.length === 0) {
+      return;
+    }
+
+    const candidateProviderSet = new Set(candidateProviderIds);
+    const nextPatterns = mergeEnabledModelPatterns(
+      currentPatterns,
+      models
+        .filter((model) => model.available && candidateProviderSet.has(model.providerId))
+        .map((model) => `${model.providerId}/${model.modelId}`),
+    );
+    if (nextPatterns.length === currentPatterns.length) {
+      return;
+    }
+
+    context.settingsManager.setEnabledModels(nextPatterns);
+    await context.settingsManager.flush();
+  }
+
   private async buildSkillRecords(
     context: RuntimeContext,
     resolvedSkills: readonly ResolvedResource[],
@@ -642,6 +685,22 @@ function toModelSettingsSnapshot(settings: Record<string, unknown>): ModelSettin
       ? { defaultThinkingLevel: settings.defaultThinkingLevel as ModelSettingsSnapshot["defaultThinkingLevel"] }
       : {}),
   } satisfies ModelSettingsSnapshot;
+}
+
+function mergeEnabledModelPatterns(
+  existingPatterns: readonly string[],
+  providerPatterns: readonly string[],
+): readonly string[] {
+  const merged = [...existingPatterns];
+  const seen = new Set(existingPatterns);
+  for (const pattern of providerPatterns) {
+    if (seen.has(pattern)) {
+      continue;
+    }
+    seen.add(pattern);
+    merged.push(pattern);
+  }
+  return merged;
 }
 
 function firstNonEmptyLine(value: string): string | undefined {
