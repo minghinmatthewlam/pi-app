@@ -8,7 +8,7 @@ import type {
   ExtensionCommandCompatibilityRecord,
   TranscriptMessage,
 } from "../src/desktop-state";
-import type { SessionStateMap } from "./session-state-map";
+import type { PendingAutoTitle, SessionStateMap } from "./session-state-map";
 import type { GitWorktreeManager } from "./worktree-manager";
 import type { JsonFileStore } from "./json-file-store";
 import type { PendingRuntimeCommandExecution } from "./extension-command-compatibility";
@@ -59,6 +59,9 @@ export interface AppStoreInternals {
   persistTranscriptCacheForSession(sessionRef: SessionRef): void;
   schedulePersistUiState(): void;
   updateSessionConfig(sessionRef: SessionRef, config: SessionConfig | undefined): void;
+  setPendingAutoTitle(sessionRef: SessionRef, pending: PendingAutoTitle): void;
+  getPendingAutoTitle(sessionRef: SessionRef): PendingAutoTitle | undefined;
+  clearPendingAutoTitle(sessionRef: SessionRef): void;
   reloadTranscriptFromDriver(sessionRef: SessionRef): Promise<void>;
   publishSelectedTranscript(): void;
   publishSelectedTranscriptFor(sessionRef: SessionRef): void;

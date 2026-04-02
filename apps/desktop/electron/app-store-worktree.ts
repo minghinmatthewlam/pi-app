@@ -8,6 +8,7 @@ import type { CreateWorktreeInput, DesktopAppState, RemoveWorktreeInput, StartTh
 import { sendMessageToSession } from "./app-store-composer";
 import type { CreateWorktreeOptions } from "./worktree-manager";
 import type { AppStoreInternals } from "./app-store-internals";
+import { NEW_THREAD_PLACEHOLDER_TITLE } from "./thread-title-constants";
 
 /* ── Public methods ─────────────────────────────────────── */
 
@@ -91,16 +92,27 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
     const prompt = input.prompt?.trim() ?? "";
     const attachments = input.attachments ?? [];
     const createOptions = (await store.buildCreateSessionOptions(targetWorkspace.workspaceId)) ?? {};
+    const initialModel =
+      input.provider && input.modelId
+        ? { provider: input.provider, modelId: input.modelId }
+        : createOptions.initialModel;
+    const initialThinkingLevel = input.thinkingLevel ?? createOptions.initialThinkingLevel;
     const session = await store.driver.createSession(targetWorkspace, {
       ...createOptions,
-      title: initialThreadTitle(prompt),
-      ...(input.provider && input.modelId ? { initialModel: { provider: input.provider, modelId: input.modelId } } : {}),
-      ...(input.thinkingLevel ? { initialThinkingLevel: input.thinkingLevel } : {}),
+      title: NEW_THREAD_PLACEHOLDER_TITLE,
+      ...(initialModel ? { initialModel } : {}),
+      ...(initialThinkingLevel ? { initialThinkingLevel } : {}),
     });
     const key = sessionKey(session.ref);
     store.sessionState.transcriptCache.set(key, []);
     store.sessionState.loadedTranscriptKeys.add(key);
     store.updateSessionConfig(session.ref, session.config);
+    const autoTitleAbortController = new AbortController();
+    const pendingAutoTitle = {
+      requestToken: randomUUID(),
+      cancel: () => autoTitleAbortController.abort(),
+    };
+    store.setPendingAutoTitle(session.ref, pendingAutoTitle);
 
     // Navigate to thread view immediately so streaming deltas render live.
     // Set selection eagerly so that any subscription replay events
@@ -126,6 +138,17 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
       void sendMessageToSession(store, session.ref, prompt, attachments).catch((error) => {
         void store.withError(error);
       });
+    }
+    if (prompt) {
+      void generateAndApplyAutoTitle(store, session.ref, targetWorkspace, {
+        prompt,
+        requestToken: pendingAutoTitle.requestToken,
+        signal: autoTitleAbortController.signal,
+        ...(initialModel ? { model: initialModel } : {}),
+        ...(initialThinkingLevel ? { thinkingLevel: initialThinkingLevel } : {}),
+      });
+    } else {
+      store.clearPendingAutoTitle(session.ref);
     }
 
     return state;
@@ -251,18 +274,54 @@ export function buildWorktreeOptions(
   };
 }
 
-export function initialThreadTitle(prompt: string): string {
-  const firstLine = prompt
-    .trim()
-    .split(/\r?\n/, 1)[0]
-    ?.trim();
-  if (!firstLine) {
-    return "New thread";
-  }
-  return firstLine.length > 72 ? `${firstLine.slice(0, 69).trimEnd()}...` : firstLine;
-}
-
 /* ── Private helpers ─────────────────────────────────────── */
+
+async function generateAndApplyAutoTitle(
+  store: AppStoreInternals,
+  sessionRef: { workspaceId: string; sessionId: string },
+  workspace: WorkspaceRef,
+  options: {
+    readonly prompt: string;
+    readonly requestToken: string;
+    readonly signal: AbortSignal;
+    readonly model?: { provider: string; modelId: string };
+    readonly thinkingLevel?: string;
+  },
+): Promise<void> {
+  const clearMatchingPendingTitle = () => {
+    const pendingAutoTitle = store.getPendingAutoTitle(sessionRef);
+    if (pendingAutoTitle?.requestToken === options.requestToken) {
+      store.clearPendingAutoTitle(sessionRef);
+    }
+  };
+
+  try {
+    const generatedTitle = await store.driver.generateThreadTitle(workspace, {
+      prompt: options.prompt,
+      signal: options.signal,
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
+    });
+    if (!generatedTitle) {
+      clearMatchingPendingTitle();
+      return;
+    }
+    const pendingAutoTitle = store.getPendingAutoTitle(sessionRef);
+    const currentSession = store.sessionFromState(sessionRef);
+    if (
+      !pendingAutoTitle ||
+      pendingAutoTitle.requestToken !== options.requestToken ||
+      currentSession?.title !== NEW_THREAD_PLACEHOLDER_TITLE
+    ) {
+      return;
+    }
+
+    store.clearPendingAutoTitle(sessionRef);
+    await store.driver.renameSession(sessionRef, generatedTitle);
+  } catch {
+    clearMatchingPendingTitle();
+  }
+}
 
 function sessionTitleForWorktree(store: AppStoreInternals, workspaceId: string, sessionId: string): string | undefined {
   return store.state.workspaces

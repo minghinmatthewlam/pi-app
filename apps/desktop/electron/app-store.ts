@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   applyHostUiRequestToExtensionUiState,
+  type GenerateThreadTitleOptions,
   isExtensionUiDialogRequest,
   JsonCatalogStore,
   PiSdkDriver,
@@ -107,6 +108,10 @@ export interface DesktopAppStoreOptions {
   readonly userDataDir: string;
   readonly initialWorkspacePaths: readonly string[];
   readonly getWindow?: () => BrowserWindow | null;
+  readonly generateThreadTitleOverride?: (
+    workspace: WorkspaceRef,
+    options: GenerateThreadTitleOptions,
+  ) => Promise<string | null | undefined>;
 }
 
 export class DesktopAppStore implements AppStoreInternals {
@@ -135,6 +140,9 @@ export class DesktopAppStore implements AppStoreInternals {
     const catalogFilePath = join(options.userDataDir, "catalogs.json");
     const driverOptions: PiSdkDriverConfig = {
       catalogFilePath,
+      ...(options.generateThreadTitleOverride
+        ? { generateThreadTitleOverride: options.generateThreadTitleOverride }
+        : {}),
     };
 
     this.driver = new PiSdkDriver(driverOptions);
@@ -1105,6 +1113,7 @@ export class DesktopAppStore implements AppStoreInternals {
       case "sessionClosed":
         this.sessionState.extensionUiBySession.delete(key);
         this.sessionState.sessionCommandsBySession.delete(key);
+        this.clearPendingAutoTitle(event.sessionRef);
         this.pendingRuntimeCommandsBySession.delete(key);
         this.reportedCompatibilityIssuesBySession.delete(key);
         break;
@@ -1685,6 +1694,24 @@ export class DesktopAppStore implements AppStoreInternals {
     }
   }
 
+  setPendingAutoTitle(sessionRef: SessionRef, pending: import("./session-state-map").PendingAutoTitle): void {
+    this.clearPendingAutoTitle(sessionRef);
+    this.sessionState.pendingAutoTitleBySession.set(sessionKey(sessionRef), pending);
+  }
+
+  getPendingAutoTitle(sessionRef: SessionRef): import("./session-state-map").PendingAutoTitle | undefined {
+    return this.sessionState.pendingAutoTitleBySession.get(sessionKey(sessionRef));
+  }
+
+  clearPendingAutoTitle(sessionRef: SessionRef): void {
+    const key = sessionKey(sessionRef);
+    const pendingAutoTitle = this.sessionState.pendingAutoTitleBySession.get(key);
+    if (!pendingAutoTitle) {
+      return;
+    }
+    this.sessionState.pendingAutoTitleBySession.delete(key);
+    pendingAutoTitle.cancel();
+  }
 }
 
 /* ── Module-private free functions ───────────────────────── */

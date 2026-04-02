@@ -22,6 +22,8 @@ import type {
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
+import type { GenerateThreadTitleOptions } from "@pi-gui/pi-sdk-driver";
+import type { WorkspaceRef } from "@pi-gui/session-driver";
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const windowTestMode = resolveWindowTestMode();
@@ -220,10 +222,20 @@ app.setName("pi");
 
 app.whenReady().then(async () => {
   const userDataDir = process.env.PI_APP_USER_DATA_DIR?.trim() || app.getPath("userData");
+  let generateThreadTitleOverride:
+    | ((workspace: WorkspaceRef, options: GenerateThreadTitleOptions) => Promise<string | null | undefined>)
+    | undefined;
+  let deferredThreadTitle:
+    | {
+        resolve: (title: string | null) => void;
+        reject: (error: Error) => void;
+      }
+    | undefined;
   store = new DesktopAppStore({
     userDataDir,
     initialWorkspacePaths: resolveInitialWorkspacePaths(),
     getWindow: () => mainWindow,
+    generateThreadTitleOverride: async (workspace, options) => generateThreadTitleOverride?.(workspace, options),
   });
   await store.initialize();
   installApplicationMenu();
@@ -231,6 +243,28 @@ app.whenReady().then(async () => {
     Object.assign(globalThis, {
       __PI_APP_TEST_HOOKS: {
         emitSessionEvent: (event: SessionDriverEvent) => store.emitTestSessionEvent(event),
+        setDeferredThreadTitleMode: () => {
+          generateThreadTitleOverride = () =>
+            new Promise<string | null>((resolve, reject) => {
+              deferredThreadTitle = { resolve, reject };
+            });
+        },
+        resolveDeferredThreadTitle: (title: string) => {
+          if (!deferredThreadTitle) {
+            throw new Error("Deferred thread-title request is unavailable");
+          }
+          const pending = deferredThreadTitle;
+          deferredThreadTitle = undefined;
+          pending.resolve(title);
+        },
+        rejectDeferredThreadTitle: () => {
+          if (!deferredThreadTitle) {
+            throw new Error("Deferred thread-title request is unavailable");
+          }
+          const pending = deferredThreadTitle;
+          deferredThreadTitle = undefined;
+          pending.reject(new Error("Deferred thread-title rejected by test"));
+        },
       },
     });
   }

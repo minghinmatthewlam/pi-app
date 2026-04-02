@@ -13,6 +13,11 @@ export interface MutableSessionExtensionUiState extends ExtensionUiState {
   pendingDialogs: SessionExtensionDialogRecord[];
 }
 
+export interface PendingAutoTitle {
+  readonly requestToken: string;
+  readonly cancel: () => void;
+}
+
 /**
  * Consolidates all per-session Maps (and one Set) that DesktopAppStore
  * maintains for runtime session state.  Having them in a single class
@@ -33,6 +38,7 @@ export class SessionStateMap {
   readonly activeWorkingActivityBySession = new Map<string, string>();
   readonly sessionCommandsBySession = new Map<string, RuntimeCommandRecord[]>();
   readonly extensionUiBySession = new Map<string, MutableSessionExtensionUiState>();
+  readonly pendingAutoTitleBySession = new Map<string, PendingAutoTitle>();
   readonly loadedTranscriptKeys = new Set<string>();
 
   /**
@@ -50,6 +56,7 @@ export class SessionStateMap {
 
   /** Remove all state for a single session key. */
   deleteSession(key: string): void {
+    const pendingAutoTitle = this.pendingAutoTitleBySession.get(key);
     this.sessionSubscriptions.delete(key);
     this.activeAssistantMessageBySession.delete(key);
     this.runningSinceBySession.delete(key);
@@ -62,6 +69,8 @@ export class SessionStateMap {
     this.sessionErrorsBySession.delete(key);
     this.sessionCommandsBySession.delete(key);
     this.extensionUiBySession.delete(key);
+    this.pendingAutoTitleBySession.delete(key);
+    pendingAutoTitle?.cancel();
     this.loadedTranscriptKeys.delete(key);
     this.transcriptCache.delete(key);
   }
