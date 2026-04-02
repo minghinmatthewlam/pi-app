@@ -69,6 +69,15 @@ contextBridge.exposeInMainWorld("piApp", {
       ipcRenderer.removeListener(desktopIpc.appCommand, handle);
     };
   },
+  onWorkspacePicked: (listener: (workspaceId: string) => void) => {
+    const handle = (_event: Electron.IpcRendererEvent, workspaceId: string) => {
+      listener(workspaceId);
+    };
+    ipcRenderer.on(desktopIpc.workspacePicked, handle);
+    return () => {
+      ipcRenderer.removeListener(desktopIpc.workspacePicked, handle);
+    };
+  },
   onClipboardImagePasted: (listener: (attachment: ComposerImageAttachment) => void) => {
     const handle = (_event: Electron.IpcRendererEvent, attachment: ComposerImageAttachment) => {
       listener(attachment);

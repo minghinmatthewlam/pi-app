@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
+  expectNewThreadWorkspace,
   getApplicationMenuItemInfo,
   getDesktopState,
   getOpenDialogInvocationCount,
@@ -41,7 +42,7 @@ test("opens the native folder picker from the empty state button and adds the se
       .toBe(workspacePath);
 
     await expect(window.getByTestId("workspace-list")).toContainText(basename(workspacePath));
-    await expect(window.locator(".empty-panel")).toContainText("Create a thread for this folder");
+    await expectNewThreadWorkspace(window, workspacePath);
   } finally {
     await harness.close();
   }
@@ -84,7 +85,7 @@ test("opens a folder from Cmd+O even when the composer is focused", async () => 
       });
 
     await expect(window.getByTestId("workspace-list")).toContainText(basename(openedWorkspacePath));
-    await expect(window.locator(".empty-panel")).toContainText("Create a thread for this folder");
+    await expectNewThreadWorkspace(window, openedWorkspacePath);
   } finally {
     await harness.close();
   }
@@ -123,6 +124,39 @@ test("exposes File > Open Folder… with Command+O and reuses the same open-fold
       .toBe(workspacePath);
 
     await expect(window.getByTestId("workspace-list")).toContainText(basename(workspacePath));
+    await expectNewThreadWorkspace(window, workspacePath);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("opens a folder from the topbar add-folder icon and goes straight to new thread", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const initialWorkspacePath = await makeWorkspace("native-open-folder-topbar-initial-workspace");
+  const openedWorkspacePath = await makeWorkspace("native-open-folder-topbar-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [initialWorkspacePath],
+    testMode: "foreground",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await harness.focusWindow();
+
+    await stubNextOpenDialog(harness, [openedWorkspacePath]);
+    await window.getByRole("button", { name: "Add folder" }).click();
+
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        const selectedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
+        return selectedWorkspace?.path ?? null;
+      }, { timeout: 20_000 })
+      .toBe(openedWorkspacePath);
+
+    await expect(window.getByTestId("workspace-list")).toContainText(basename(openedWorkspacePath));
+    await expectNewThreadWorkspace(window, openedWorkspacePath);
   } finally {
     await harness.close();
   }

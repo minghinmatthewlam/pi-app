@@ -136,6 +136,7 @@ export default function App() {
   const [settingsWorkspaceId, setSettingsWorkspaceId] = useState("");
   const [skillsWorkspaceId, setSkillsWorkspaceId] = useState("");
   const [extensionsWorkspaceId, setExtensionsWorkspaceId] = useState("");
+  const [pendingNewThreadWorkspaceId, setPendingNewThreadWorkspaceId] = useState("");
   const [newThreadRootWorkspaceId, setNewThreadRootWorkspaceId] = useState("");
   const [newThreadEnvironment, setNewThreadEnvironment] = useState<NewThreadEnvironment>("local");
   const [newThreadPrompt, setNewThreadPrompt] = useState("");
@@ -553,6 +554,7 @@ export default function App() {
       setSettingsWorkspaceId("");
       setSkillsWorkspaceId("");
       setExtensionsWorkspaceId("");
+      setPendingNewThreadWorkspaceId("");
       setNewThreadRootWorkspaceId("");
       setNewThreadEnvironment("local");
       setNewThreadAttachments([]);
@@ -573,6 +575,38 @@ export default function App() {
   }, [rootWorkspaceOptions]);
 
   useEffect(() => {
+    if (!snapshot || !pendingNewThreadWorkspaceId) {
+      return;
+    }
+    const nextRootWorkspaceId = resolveRepoWorkspaceId(snapshot.workspaces, pendingNewThreadWorkspaceId);
+    if (!nextRootWorkspaceId || !rootWorkspaceOptions.some((workspace) => workspace.id === nextRootWorkspaceId)) {
+      return;
+    }
+    setNewThreadRootWorkspaceId(nextRootWorkspaceId);
+    setPendingNewThreadWorkspaceId("");
+  }, [pendingNewThreadWorkspaceId, rootWorkspaceOptions, snapshot]);
+
+  const resetNewThreadSurface = (workspaceId?: string) => {
+    const nextWorkspaceId =
+      (workspaceId && (
+        rootWorkspaceOptions.find((workspace) => workspace.id === workspaceId)?.id ||
+        (snapshot ? resolveRepoWorkspaceId(snapshot.workspaces, workspaceId) : undefined)
+      )) ||
+      rootWorkspace?.id ||
+      visibleWorkspaces[0]?.id ||
+      "";
+    if (nextWorkspaceId) {
+      setNewThreadRootWorkspaceId(nextWorkspaceId);
+    }
+    setNewThreadEnvironment("local");
+    setNewThreadPrompt("");
+    setNewThreadAttachments([]);
+    setNewThreadProvider(undefined);
+    setNewThreadModelId(undefined);
+    setNewThreadThinkingLevel(undefined);
+  };
+
+  useEffect(() => {
     const handleCommand = (command: PiDesktopCommand) => {
       if (command === desktopCommands.openSettings) {
         openSettings(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id);
@@ -582,6 +616,10 @@ export default function App() {
     };
 
     const removeCommandListener = window.piApp?.onCommand?.(handleCommand);
+    const removeWorkspacePickedListener = window.piApp?.onWorkspacePicked?.((workspaceId) => {
+      setPendingNewThreadWorkspaceId(workspaceId);
+      resetNewThreadSurface();
+    });
     const removeClipboardImageListener = window.piApp?.onClipboardImagePasted?.(handlePastedClipboardImage);
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       // Cmd+F toggles thread search
@@ -614,6 +652,7 @@ export default function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       removeCommandListener?.();
+      removeWorkspacePickedListener?.();
       removeClipboardImageListener?.();
       window.removeEventListener("keydown", handleKeyDown);
     };
@@ -840,23 +879,13 @@ export default function App() {
   };
 
   const openNewThreadSurface = (workspaceId?: string) => {
-    const nextRootWorkspace =
-      (workspaceId && rootWorkspaceOptions.find((workspace) => workspace.id === workspaceId)) ||
-      rootWorkspace ||
-      visibleWorkspaces[0];
-    if (nextRootWorkspace) {
-      setNewThreadRootWorkspaceId(nextRootWorkspace.id);
-    }
-    setNewThreadEnvironment("local");
-    setNewThreadPrompt("");
-    setNewThreadAttachments([]);
-    setNewThreadProvider(undefined);
-    setNewThreadModelId(undefined);
-    setNewThreadThinkingLevel(undefined);
+    setPendingNewThreadWorkspaceId("");
+    resetNewThreadSurface(workspaceId);
     setActiveView("new-thread");
   };
 
   const handleSelectNewThreadWorkspace = (workspaceId: string) => {
+    setPendingNewThreadWorkspaceId("");
     setNewThreadRootWorkspaceId(workspaceId);
     setNewThreadAttachments([]);
     setNewThreadProvider(undefined);

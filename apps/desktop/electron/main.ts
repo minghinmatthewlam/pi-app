@@ -189,7 +189,16 @@ async function pickWorkspaceViaDialog(): Promise<DesktopAppState> {
   if (result.canceled || result.filePaths.length === 0) {
     return store.getState();
   }
-  return store.addWorkspace(result.filePaths[0] as string);
+  const nextState = await store.addWorkspace(result.filePaths[0] as string);
+  if (!nextState.selectedWorkspaceId) {
+    return nextState;
+  }
+  const newThreadState =
+    nextState.activeView === "new-thread" ? nextState : await store.setActiveView("new-thread");
+  if (window) {
+    window.webContents.send(desktopIpc.workspacePicked, nextState.selectedWorkspaceId);
+  }
+  return newThreadState;
 }
 
 function installApplicationMenu(): void {

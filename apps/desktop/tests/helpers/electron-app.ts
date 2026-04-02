@@ -839,6 +839,12 @@ export async function openNewThread(window: Page): Promise<void> {
   await expect(composer).toBeVisible({ timeout: 15_000 });
 }
 
+export async function expectNewThreadWorkspace(window: Page, workspacePath: string): Promise<void> {
+  const workspace = await waitForWorkspaceByPath(window, workspacePath);
+  await expect(window.getByTestId("new-thread-composer")).toBeVisible({ timeout: 15_000 });
+  await expect(window.locator(".new-thread__workspace")).toHaveValue(workspace.id);
+}
+
 export async function startThreadFromSurface(
   window: Page,
   options: {
