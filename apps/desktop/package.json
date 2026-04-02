@@ -27,6 +27,7 @@
     "demo:readme": "pnpm run build && node --experimental-strip-types scripts/readme-demo.mts",
     "test:core:navigation": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/core/navigation.spec.ts",
     "test:core:archive": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/core/archive.spec.ts",
+    "test:core:new-thread-auto-title": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/core/new-thread-auto-title.spec.ts",
     "test:core:composer-controls": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/core/composer-controls.spec.ts",
     "test:core:mentions-diff": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/core/mentions-diff.spec.ts",
     "test:core:persistence": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/core/persistence.spec.ts",

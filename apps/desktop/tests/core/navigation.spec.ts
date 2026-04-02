@@ -64,6 +64,7 @@ test("navigates across folders and sessions through the sidebar", async () => {
   });
   try {
     const window = await harness.firstWindow();
+    await harness.focusWindow();
     await waitForWorkspaceByPath(window, alphaPath);
     await waitForWorkspaceByPath(window, betaPath);
 

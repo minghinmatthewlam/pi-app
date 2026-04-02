@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { expect, test } from "@playwright/test";
-import { createSessionViaIpc, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
+import { createSessionViaIpc, launchDesktop, makeUserDataDir, makeWorkspace, waitForWorkspaceByPath } from "../helpers/electron-app";
 
 test("boots an existing workspace and starts a new thread through the real UI", async () => {
   const userDataDir = await makeUserDataDir();
@@ -14,6 +14,7 @@ test("boots an existing workspace and starts a new thread through the real UI", 
   try {
     const window = await harness.firstWindow();
 
+    await waitForWorkspaceByPath(window, workspacePath);
     await expect(window.getByTestId("workspace-list")).toContainText(basename(workspacePath));
     await window.getByRole("complementary").getByRole("button", { name: "New thread" }).click();
 
@@ -44,6 +45,7 @@ test("aligns workspace names with session titles in the sidebar gutter", async (
   try {
     const window = await harness.firstWindow();
 
+    await waitForWorkspaceByPath(window, workspacePath);
     await expect(window.getByTestId("workspace-list")).toContainText(basename(workspacePath));
     await createSessionViaIpc(window, workspacePath, "Aligned session");
 

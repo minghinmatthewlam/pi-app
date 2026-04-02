@@ -323,6 +323,7 @@ async function runComposerCommand(
   }
 
   if (parsed.type === "name") {
+    store.clearPendingAutoTitle(sessionRef);
     await store.driver.renameSession(sessionRef, parsed.title);
     return finishComposerCommand(store, sessionRef, key, `Session renamed to ${parsed.title}`);
   }

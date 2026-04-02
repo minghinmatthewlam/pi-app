@@ -1,7 +1,3 @@
-import { execFile } from "node:child_process";
-import { mkdir, realpath, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
 import {
   assertExists,
@@ -9,12 +5,10 @@ import {
   createSessionViaIpc,
   getDesktopState,
   launchDesktop,
+  makeGitWorkspace,
   makeUserDataDir,
-  makeWorkspace,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
-
-const execFileAsync = promisify(execFile);
 
 test("creates and selects a worktree-backed workspace from the desktop UI", async () => {
   test.setTimeout(90_000);
@@ -27,6 +21,7 @@ test("creates and selects a worktree-backed workspace from the desktop UI", asyn
 
   try {
     const window = await harness.firstWindow();
+    await harness.focusWindow();
     const rootWorkspace = await waitForWorkspaceByPath(window, workspacePath);
 
     await window.getByRole("button", { name: `Workspace actions for ${rootWorkspace.name}` }).click();
@@ -73,6 +68,7 @@ test("shows a worktree icon in the sidebar without a local text badge", async ()
 
   try {
     const window = await harness.firstWindow();
+    await harness.focusWindow();
     const rootWorkspace = await waitForWorkspaceByPath(window, workspacePath);
 
     await createNamedThread(window, "Local thread");
@@ -154,13 +150,3 @@ test("keeps orphaned worktree workspaces visible after removing the root workspa
     await harness.close();
   }
 });
-
-async function makeGitWorkspace(name: string): Promise<string> {
-  const workspacePath = await makeWorkspace(name);
-  await execFileAsync("git", ["init", "-b", "main"], { cwd: workspacePath });
-  await execFileAsync("git", ["config", "user.name", "Pi App Tests"], { cwd: workspacePath });
-  await execFileAsync("git", ["config", "user.email", "pi-gui-tests@example.com"], { cwd: workspacePath });
-  await execFileAsync("git", ["add", "README.md"], { cwd: workspacePath });
-  await execFileAsync("git", ["commit", "-m", "init"], { cwd: workspacePath });
-  return realpath(workspacePath);
-}

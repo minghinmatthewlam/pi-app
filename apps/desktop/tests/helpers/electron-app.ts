@@ -140,6 +140,13 @@ export async function makeWorkspace(name: string): Promise<string> {
   return realpath(workspacePath);
 }
 
+export async function makeGitWorkspace(name: string): Promise<string> {
+  const workspacePath = await makeWorkspace(name);
+  await initGitRepo(workspacePath);
+  await commitAllInGitRepo(workspacePath, "init");
+  return workspacePath;
+}
+
 export async function writeProjectExtension(
   workspacePath: string,
   fileName: string,
@@ -379,7 +386,7 @@ export async function jumpTimelineToBottom(window: Page): Promise<void> {
     if (!pane) {
       throw new Error("Timeline pane was unavailable");
     }
-    pane.scrollTo({ top: pane.scrollHeight });
+    pane.scrollTop = pane.scrollHeight;
     pane.dispatchEvent(new Event("scroll", { bubbles: true }));
   });
 }
@@ -390,7 +397,7 @@ export async function scrollTimelineAwayFromBottom(window: Page, pixels = 160): 
     if (!pane) {
       throw new Error("Timeline pane was unavailable");
     }
-    pane.scrollTo({ top: Math.max(0, pane.scrollHeight - pane.clientHeight - distance) });
+    pane.scrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight - distance);
     pane.dispatchEvent(new Event("scroll", { bubbles: true }));
   }, pixels);
 }
@@ -408,6 +415,42 @@ export async function emitTestSessionEvent(
     }
     await hooks.emitSessionEvent(payload);
   }, event);
+}
+
+export async function setDeferredThreadTitleMode(harness: DesktopHarness): Promise<void> {
+  await harness.electronApp.evaluate(async () => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: { setDeferredThreadTitleMode?: () => void };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.setDeferredThreadTitleMode) {
+      throw new Error("Deferred thread-title hook is unavailable");
+    }
+    hooks.setDeferredThreadTitleMode();
+  });
+}
+
+export async function resolveDeferredThreadTitle(harness: DesktopHarness, title: string): Promise<void> {
+  await harness.electronApp.evaluate(async (_, nextTitle) => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: { resolveDeferredThreadTitle?: (title: string) => void };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.resolveDeferredThreadTitle) {
+      throw new Error("Deferred thread-title resolve hook is unavailable");
+    }
+    hooks.resolveDeferredThreadTitle(nextTitle);
+  }, title);
+}
+
+export async function rejectDeferredThreadTitle(harness: DesktopHarness): Promise<void> {
+  await harness.electronApp.evaluate(async () => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: { rejectDeferredThreadTitle?: () => void };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.rejectDeferredThreadTitle) {
+      throw new Error("Deferred thread-title reject hook is unavailable");
+    }
+    hooks.rejectDeferredThreadTitle();
+  });
 }
 
 export async function seedTranscriptMessages(
@@ -464,41 +507,113 @@ export async function seedTranscriptMessages(
       runId,
       text,
     });
-
-    if (index < messages.length - 1) {
-      await emitTestSessionEvent(harness, {
-        type: "runCompleted",
-        sessionRef,
-        timestamp: completedAt,
-        runId,
-        snapshot: {
-          ref: sessionRef,
-          workspace,
-          title: selectedSession.title,
-          status: "idle",
-          updatedAt: completedAt,
-          preview: text,
-        },
-      });
-      continue;
-    }
-
-    await emitTestSessionEvent(harness, {
-      type: "sessionUpdated",
+    await emitSuccessfulRunCompletion(harness, {
       sessionRef,
-      timestamp: completedAt,
-      snapshot: {
-        ref: sessionRef,
-        workspace,
-        title: selectedSession.title,
-        status: "idle",
-        updatedAt: completedAt,
-        preview: text,
-      },
+      workspace,
+      title: selectedSession.title,
+      runId,
+      completedAt,
+      preview: text,
     });
   }
 
   return { sessionRef, messages };
+}
+
+export async function streamAssistantDeltas(
+  harness: DesktopHarness,
+  window: Page,
+  chunks: readonly string[],
+  runId = `stream-run-${Date.now()}`,
+): Promise<{ readonly sessionRef: SessionRef; readonly fullText: string }> {
+  const state = await getDesktopState(window);
+  const selectedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
+  const selectedSession = selectedWorkspace?.sessions.find((session) => session.id === state.selectedSessionId);
+  assertExists(selectedWorkspace, "Expected selected workspace while streaming transcript");
+  assertExists(selectedSession, "Expected selected session while streaming transcript");
+
+  const sessionRef = {
+    workspaceId: selectedWorkspace.id,
+    sessionId: selectedSession.id,
+  } satisfies SessionRef;
+  const workspace = {
+    workspaceId: selectedWorkspace.id,
+    path: selectedWorkspace.path,
+    displayName: selectedWorkspace.name,
+  };
+  const startedAt = new Date().toISOString();
+  const completedAt = new Date(Date.now() + chunks.length * 1_000 + 1_000).toISOString();
+  const fullText = chunks.join("");
+
+  await emitTestSessionEvent(harness, {
+    type: "sessionUpdated",
+    sessionRef,
+    timestamp: startedAt,
+    runId,
+    snapshot: {
+      ref: sessionRef,
+      workspace,
+      title: selectedSession.title,
+      status: "running",
+      updatedAt: startedAt,
+      preview: fullText,
+      runningRunId: runId,
+    },
+  });
+
+  for (const [index, chunk] of chunks.entries()) {
+    await emitTestSessionEvent(harness, {
+      type: "assistantDelta",
+      sessionRef,
+      timestamp: new Date(Date.now() + index * 1_000).toISOString(),
+      runId,
+      text: chunk,
+    });
+  }
+
+  await emitSuccessfulRunCompletion(harness, {
+    sessionRef,
+    workspace,
+    title: selectedSession.title,
+    runId,
+    completedAt,
+    preview: fullText,
+  });
+
+  return { sessionRef, fullText };
+}
+
+async function emitSuccessfulRunCompletion(
+  harness: DesktopHarness,
+  options: {
+    readonly sessionRef: SessionRef;
+    readonly workspace: {
+      readonly workspaceId: string;
+      readonly path: string;
+      readonly displayName: string;
+    };
+    readonly title: string;
+    readonly runId: string;
+    readonly completedAt: string;
+    readonly preview: string;
+  },
+): Promise<void> {
+  const { completedAt, preview, runId, sessionRef, title, workspace } = options;
+
+  await emitTestSessionEvent(harness, {
+    type: "runCompleted",
+    sessionRef,
+    timestamp: completedAt,
+    runId,
+    snapshot: {
+      ref: sessionRef,
+      workspace,
+      title,
+      status: "idle",
+      updatedAt: completedAt,
+      preview,
+    },
+  });
 }
 
 export function persistedSessionDataPaths(
@@ -589,9 +704,9 @@ export async function openNewThread(window: Page): Promise<void> {
   if (await composer.isVisible().catch(() => false)) {
     return;
   }
-  const button = window.getByRole("complementary").getByRole("button", { name: "New thread" });
-  await expect(button).toBeVisible();
-  await expect(button).toBeEnabled();
+  const button = window.locator(".sidebar").getByRole("button", { name: "New thread", exact: true });
+  await expect(button).toBeVisible({ timeout: 15_000 });
+  await expect(button).toBeEnabled({ timeout: 15_000 });
   await button.click();
   await expect(composer).toBeVisible({ timeout: 15_000 });
 }

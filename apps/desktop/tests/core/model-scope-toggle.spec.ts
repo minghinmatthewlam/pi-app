@@ -1,4 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import {
@@ -11,6 +10,7 @@ import {
   makeUserDataDir,
   makeWorkspace,
   openNewThread,
+  seedAgentDir,
   selectSession,
   startThreadFromSurface,
   waitForWorkspaceByPath,
@@ -38,10 +38,7 @@ test("switches between app-global and per-repo model scope while worktrees inher
     const rootWorkspaceA = await waitForWorkspaceByPath(window, workspaceA);
     const rootWorkspaceB = await waitForWorkspaceByPath(window, workspaceB);
 
-    await startThreadFromSurface(window, {
-      workspaceName: rootWorkspaceA.name,
-      prompt: "Repo A global session",
-    });
+    await createNamedThread(window, "Repo A global session", { workspaceName: rootWorkspaceA.name });
     await expect(window.locator(".topbar__session")).toHaveText("Repo A global session");
     await expectComposerModelState(window, {
       activeModel: "openai:gpt-5",
@@ -49,10 +46,7 @@ test("switches between app-global and per-repo model scope while worktrees inher
       hiddenModelLabels: ["GPT-4 Turbo"],
     });
 
-    await startThreadFromSurface(window, {
-      workspaceName: rootWorkspaceB.name,
-      prompt: "Repo B global session",
-    });
+    await createNamedThread(window, "Repo B global session", { workspaceName: rootWorkspaceB.name });
     await expect(window.locator(".topbar__session")).toHaveText("Repo B global session");
     await expectComposerModelState(window, {
       activeModel: "openai:gpt-5",
@@ -95,7 +89,7 @@ test("switches between app-global and per-repo model scope while worktrees inher
       environment: "worktree",
       prompt: "Repo A worktree session",
     });
-    await expect(window.locator(".topbar__session")).toHaveText("Repo A worktree session");
+    await expect(window.locator(".topbar__session")).toHaveText("New thread");
     await expectComposerModelState(window, {
       activeModel: "openai:gpt-4o",
       visibleModelLabels: ["GPT-4o", "GPT-4 Turbo"],
@@ -109,7 +103,7 @@ test("switches between app-global and per-repo model scope while worktrees inher
       visibleModelLabels: ["GPT-4o", "GPT-4 Turbo"],
       hiddenModelLabels: ["GPT-5"],
     });
-    await selectSession(window, "Repo A worktree session");
+    await window.locator(".session-row--active .session-row__select").first().click();
     await expect(window.getByTestId("new-thread-composer")).toHaveCount(0);
 
     await selectComposerModel(window, "GPT-4 Turbo");
@@ -141,35 +135,6 @@ test("switches between app-global and per-repo model scope while worktrees inher
     await harness.close();
   }
 });
-
-async function seedAgentDir(agentDir: string): Promise<void> {
-  await mkdir(agentDir, { recursive: true });
-  await writeFile(
-    join(agentDir, "auth.json"),
-    `${JSON.stringify(
-      {
-        openai: { type: "api_key", key: "test-openai-key" },
-      },
-      null,
-      2,
-    )}\n`,
-    "utf8",
-  );
-  await writeFile(
-    join(agentDir, "settings.json"),
-    `${JSON.stringify(
-      {
-        defaultProvider: "openai",
-        defaultModel: "gpt-5",
-        defaultThinkingLevel: "medium",
-        enabledModels: ["openai/gpt-5", "openai/gpt-4o"],
-      },
-      null,
-      2,
-    )}\n`,
-    "utf8",
-  );
-}
 
 async function openSettings(window: Page): Promise<void> {
   await window.keyboard.press(desktopShortcut(","));

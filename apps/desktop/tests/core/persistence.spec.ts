@@ -193,6 +193,12 @@ test("migrates legacy inline transcript and attachment persistence into file-bac
     readFile(join(userDataDir, "ui-state.json"), "utf8"),
   ]);
 
+  const parsedTranscript = JSON.parse(transcriptRaw) as { transcript?: unknown } | unknown[];
+  const legacyTranscript = Array.isArray(parsedTranscript)
+    ? parsedTranscript
+    : Array.isArray(parsedTranscript?.transcript)
+      ? parsedTranscript.transcript
+      : [];
   const uiState = JSON.parse(uiStateRaw) as Record<string, unknown>;
   await Promise.all([unlink(transcriptPath), unlink(attachmentPath)]);
   await writeFile(
@@ -201,7 +207,7 @@ test("migrates legacy inline transcript and attachment persistence into file-bac
       {
         ...uiState,
         transcripts: {
-          [rawSessionKey]: JSON.parse(transcriptRaw),
+          [rawSessionKey]: legacyTranscript,
         },
         composerAttachmentsBySession: {
           [rawSessionKey]: JSON.parse(attachmentRaw),
@@ -216,7 +222,9 @@ test("migrates legacy inline transcript and attachment persistence into file-bac
   const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
   try {
     const window = await secondRun.firstWindow();
-    await expect(window.getByTestId("composer")).toHaveValue("legacy draft");
+    await expect(window.getByTestId("workspace-list")).toContainText("legacy-persistence-workspace");
+    await expect(window.locator(".session-row--active")).toContainText("Legacy persistence session");
+    await expect(window.getByTestId("composer")).toHaveValue("legacy draft", { timeout: 15_000 });
     await expect(window.locator(".composer-attachment")).toHaveCount(1);
     await expect(window.getByTestId("transcript")).toContainText(/Model |No session overrides set/);
 
