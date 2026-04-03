@@ -37,6 +37,7 @@ let stopPublishingState: (() => void) | undefined;
 let stopPublishingSelectedTranscript: (() => void) | undefined;
 let stopNotifications: (() => void) | undefined;
 let stopUpdateChecker: (() => void) | undefined;
+let quittingAfterStoreFlush = false;
 
 const SUPPORTED_IMAGE_TYPES = SUPPORTED_COMPOSER_IMAGE_TYPES;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set<string>(SUPPORTED_IMAGE_TYPES.map((type) => type.mimeType));
@@ -490,11 +491,23 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
   stopNotifications?.();
   stopNotifications = undefined;
   stopUpdateChecker?.();
   stopUpdateChecker = undefined;
+  if (quittingAfterStoreFlush || !store) {
+    return;
+  }
+
+  event.preventDefault();
+  quittingAfterStoreFlush = true;
+  void store
+    .flushPersistence()
+    .catch(() => undefined)
+    .finally(() => {
+      app.quit();
+    });
 });
 
 function resolveInitialWorkspacePaths(): readonly string[] {

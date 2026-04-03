@@ -182,6 +182,26 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.buildSelectedTranscriptRecord(sessionRef);
   }
 
+  async flushPersistence(): Promise<void> {
+    await this.initialize();
+    if (this.persistUiStateTimer) {
+      clearTimeout(this.persistUiStateTimer);
+      this.persistUiStateTimer = undefined;
+    }
+
+    const pendingTranscriptWrites = [...this.transcriptPersistTimers.entries()];
+    this.transcriptPersistTimers.clear();
+    await Promise.all(
+      pendingTranscriptWrites.map(async ([key, timer]) => {
+        clearTimeout(timer);
+        const transcript = (this.sessionState.transcriptCache.get(key) ?? []).map(cloneTranscriptMessage);
+        await this.writePersistedTranscript(key, transcript);
+      }),
+    );
+
+    await this.persistUiState();
+  }
+
   async emitTestSessionEvent(event: SessionDriverEvent): Promise<void> {
     await this.initialize();
     await this.handleSessionEvent(event);
