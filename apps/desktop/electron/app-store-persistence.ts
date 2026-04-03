@@ -5,7 +5,7 @@ import type {
   NotificationPreferences,
 } from "../src/desktop-state";
 import type { ModelSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 export interface PersistedUiState {
   readonly version?: 2 | 3 | 4 | 5 | 6 | 7;
@@ -73,18 +73,41 @@ export async function writePersistedUiState(
   payload: PersistedUiState,
 ): Promise<void> {
   await mkdir(dirname(uiStateFilePath), { recursive: true });
-  await writeFile(
-    uiStateFilePath,
-    `${JSON.stringify(
-      {
-        version: 7,
-        ...payload,
-      } satisfies PersistedUiState,
-      null,
-      2,
-    )}\n`,
-    "utf8",
-  );
+  const serialized = `${JSON.stringify(
+    {
+      version: 7,
+      ...payload,
+    } satisfies PersistedUiState,
+    null,
+    2,
+  )}\n`;
+  const tmpPath = `${uiStateFilePath}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tmpPath, serialized, "utf8");
+
+  try {
+    await rename(tmpPath, uiStateFilePath);
+  } catch (error) {
+    if (!isReplaceRenameError(error)) {
+      await cleanupTempFile(tmpPath);
+      throw error;
+    }
+
+    try {
+      await unlink(uiStateFilePath);
+    } catch (unlinkError) {
+      if (!isMissingFileError(unlinkError)) {
+        await cleanupTempFile(tmpPath);
+        throw unlinkError;
+      }
+    }
+
+    try {
+      await rename(tmpPath, uiStateFilePath);
+    } catch (renameError) {
+      await cleanupTempFile(tmpPath);
+      throw renameError;
+    }
+  }
 }
 
 function toPersistedModelSettingsSnapshot(value: unknown): ModelSettingsSnapshot | undefined {
@@ -103,4 +126,22 @@ function toPersistedModelSettingsSnapshot(value: unknown): ModelSettingsSnapshot
       : {}),
     enabledModelPatterns,
   };
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+
+function isReplaceRenameError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error.code === "EEXIST" || error.code === "EPERM");
+}
+
+async function cleanupTempFile(filePath: string): Promise<void> {
+  try {
+    await unlink(filePath);
+  } catch (error) {
+    if (!isMissingFileError(error)) {
+      throw error;
+    }
+  }
 }
