@@ -8,7 +8,8 @@ const OPEN_PANEL_SCRIPT = `
 on run argv
   set targetPath to item 1 of argv
   tell application "System Events"
-    set frontmost of first application process whose name is "Electron" to true
+    set frontmostProcess to first application process whose frontmost is true
+    set frontmost of frontmostProcess to true
     delay 0.6
     keystroke "g" using {command down, shift down}
     delay 0.5

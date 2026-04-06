@@ -54,6 +54,8 @@ export interface LaunchDesktopOptions {
   readonly agentDir?: string;
   readonly realAuthSourceDir?: string;
   readonly scrubProviderEnv?: boolean;
+  readonly envOverrides?: Readonly<Record<string, string | undefined>>;
+  readonly inheritParentEnv?: boolean;
 }
 
 export interface SeedAgentDirOptions {
@@ -189,14 +191,16 @@ function buildDesktopLaunchEnv(
   agentDir: string,
   options: LaunchDesktopOptions,
 ): NodeJS.ProcessEnv {
+  const baseEnv = options.inheritParentEnv === false ? {} : process.env;
   const env = {
-    ...process.env,
+    ...baseEnv,
     PI_APP_USER_DATA_DIR: userDataDir,
     PI_APP_INITIAL_WORKSPACES: (options.initialWorkspaces ?? []).join(delimiter),
     PI_APP_TEST_MODE: options.testMode ?? process.env.PI_APP_TEST_MODE ?? "foreground",
     PI_CODING_AGENT_DIR: agentDir,
     ...(options.notificationLogPath ? { PI_APP_NOTIFICATION_LOG_PATH: options.notificationLogPath } : {}),
     PI_APP_OPEN_DEVTOOLS: "0",
+    ...(options.envOverrides ?? {}),
   };
 
   if (options.scrubProviderEnv || options.realAuthSourceDir) {

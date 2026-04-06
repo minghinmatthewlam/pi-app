@@ -8,6 +8,7 @@ import {
   parseFrontmatter,
   stripFrontmatter,
   type PathMetadata,
+  type ResolvedPaths,
   type ResolvedResource,
 } from "@mariozechner/pi-coding-agent";
 import type {
@@ -257,7 +258,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
 
   async setSkillEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
-    const resolvedPaths = await context.packageManager.resolve();
+    const resolvedPaths = await this.resolveRuntimePaths(context);
     const resource = resolvedPaths.skills.find((entry) => resolve(entry.path) === resolve(filePath));
     if (!resource) {
       throw new Error(`Unknown skill: ${filePath}`);
@@ -271,7 +272,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
 
   async setExtensionEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
-    const resolvedPaths = await context.packageManager.resolve();
+    const resolvedPaths = await this.resolveRuntimePaths(context);
     const resource = resolvedPaths.extensions.find((entry) => resolve(entry.path) === resolve(filePath));
     if (!resource) {
       throw new Error(`Unknown extension: ${filePath}`);
@@ -289,18 +290,48 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       return existing;
     }
 
-    const settingsManager = SettingsManager.create(workspace.path, this.agentDir);
-    const packageManager = new DefaultPackageManager({
+    let settingsManager = SettingsManager.create(workspace.path, this.agentDir);
+    let packageManager = new DefaultPackageManager({
       cwd: workspace.path,
       agentDir: this.agentDir,
       settingsManager,
     });
-    const resourceLoader = new DefaultResourceLoader({
+    let resourceLoader = new DefaultResourceLoader({
       cwd: workspace.path,
       agentDir: this.agentDir,
       settingsManager,
     });
-    await resourceLoader.reload();
+    try {
+      await resourceLoader.reload();
+    } catch (error) {
+      if (!isGlobalNpmLookupError(error)) {
+        throw error;
+      }
+
+      const fallbackSettingsManager = createSettingsManagerWithoutNpmPackages(settingsManager);
+      if (!fallbackSettingsManager) {
+        throw error;
+      }
+
+      console.warn(
+        `[pi-gui] Falling back to runtime resource loading without npm package sources for ${workspace.path}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+
+      settingsManager = fallbackSettingsManager;
+      packageManager = new DefaultPackageManager({
+        cwd: workspace.path,
+        agentDir: this.agentDir,
+        settingsManager,
+      });
+      resourceLoader = new DefaultResourceLoader({
+        cwd: workspace.path,
+        agentDir: this.agentDir,
+        settingsManager,
+      });
+      await resourceLoader.reload();
+    }
 
     const context: RuntimeContext = {
       workspace,
@@ -313,7 +344,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
   }
 
   private async buildSnapshot(context: RuntimeContext): Promise<RuntimeSnapshot> {
-    const resolvedPaths = await context.packageManager.resolve();
+    const resolvedPaths = await this.resolveRuntimePaths(context);
     const [skills, extensions, providers, models] = await Promise.all([
       this.buildSkillRecords(context, resolvedPaths.skills),
       this.buildExtensionRecords(context, resolvedPaths.extensions),
@@ -340,6 +371,34 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       extensions,
       settings,
     };
+  }
+
+  private async resolveRuntimePaths(context: RuntimeContext): Promise<ResolvedPaths> {
+    try {
+      return await context.packageManager.resolve();
+    } catch (error) {
+      if (!isGlobalNpmLookupError(error)) {
+        throw error;
+      }
+
+      const fallbackSettingsManager = createSettingsManagerWithoutNpmPackages(context.settingsManager);
+      if (!fallbackSettingsManager) {
+        throw error;
+      }
+
+      console.warn(
+        `[pi-gui] Falling back to runtime package resolution without npm package sources for ${context.workspace.path}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+
+      const fallbackPackageManager = new DefaultPackageManager({
+        cwd: context.workspace.path,
+        agentDir: this.agentDir,
+        settingsManager: fallbackSettingsManager,
+      });
+      return fallbackPackageManager.resolve();
+    }
   }
 
   private async buildProviderRecords(): Promise<readonly RuntimeProviderRecord[]> {
@@ -706,6 +765,57 @@ const DESKTOP_API_KEY_PROVIDER_IDS = new Set([
 
 function providerSupportsDesktopApiKeySetup(providerId: string): boolean {
   return DESKTOP_API_KEY_PROVIDER_IDS.has(providerId);
+}
+
+function isGlobalNpmLookupError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("npm root -g");
+}
+
+function createSettingsManagerWithoutNpmPackages(current: SettingsManager): SettingsManager | null {
+  const globalSettings = current.getGlobalSettings() as Record<string, unknown>;
+  const projectSettings = current.getProjectSettings() as Record<string, unknown>;
+  const nextGlobalPackages = filterOutNpmPackageSources(globalSettings.packages);
+  const nextProjectPackages = filterOutNpmPackageSources(projectSettings.packages);
+
+  const globalChanged = nextGlobalPackages !== globalSettings.packages;
+  const projectChanged = nextProjectPackages !== projectSettings.packages;
+  if (!globalChanged && !projectChanged) {
+    return null;
+  }
+
+  const nextGlobalSettings = globalChanged ? { ...globalSettings, packages: nextGlobalPackages } : globalSettings;
+  const nextProjectSettings = projectChanged ? { ...projectSettings, packages: nextProjectPackages } : projectSettings;
+  return SettingsManager.fromStorage({
+    withLock(scope, fn) {
+      const currentJson =
+        scope === "global"
+          ? JSON.stringify(nextGlobalSettings)
+          : JSON.stringify(nextProjectSettings);
+      fn(currentJson);
+    },
+  });
+}
+
+function filterOutNpmPackageSources(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  const filtered = value.filter((entry) => !isNpmPackageSource(entry));
+  return filtered.length === value.length ? value : filtered;
+}
+
+function isNpmPackageSource(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value.trim().startsWith("npm:");
+  }
+
+  if (typeof value !== "object" || value === null || !("source" in value)) {
+    return false;
+  }
+
+  return typeof value.source === "string" && value.source.trim().startsWith("npm:");
 }
 
 function inferProviderAuthSource(
