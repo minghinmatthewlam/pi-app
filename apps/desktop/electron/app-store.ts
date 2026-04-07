@@ -753,7 +753,6 @@ export class DesktopAppStore implements AppStoreInternals {
   async refreshState(options: RefreshStateOptions = {}): Promise<DesktopAppState> {
     this.refreshStateDepth += 1;
     try {
-      const previousSelectedKey = this.currentSelectedSessionKey();
       const [workspacesSnapshot, sessionsSnapshot] = await Promise.all([
         this.driver.listWorkspaces(),
         this.driver.listSessions(),
@@ -1661,15 +1660,6 @@ export class DesktopAppStore implements AppStoreInternals {
           sessionId: this.state.selectedSessionId,
         })
       : "";
-  }
-
-  private isSelectedSession(sessionRef: SessionRef): boolean {
-    const selected = this.selectedSessionRef();
-    return Boolean(
-      selected &&
-      selected.workspaceId === sessionRef.workspaceId &&
-      selected.sessionId === sessionRef.sessionId,
-    );
   }
 
   private buildSelectedTranscriptRecord(sessionRef: SessionRef): SelectedTranscriptRecord {
