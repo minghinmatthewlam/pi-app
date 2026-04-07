@@ -34,7 +34,6 @@ let store: DesktopAppStore;
 const themeManager = new ThemeManager();
 let mainWindow: BrowserWindow | null = null;
 let stopPublishingState: (() => void) | undefined;
-let stopPublishingSelectedTranscript: (() => void) | undefined;
 let stopNotifications: (() => void) | undefined;
 let stopUpdateChecker: (() => void) | undefined;
 let quittingAfterStoreFlush = false;
@@ -144,28 +143,18 @@ function createWindow(): BrowserWindow {
 
 function attachStatePublisher(window: BrowserWindow): void {
   stopPublishingState?.();
-  stopPublishingSelectedTranscript?.();
   stopPublishingState = store.subscribe((state) => {
     if (canPublishToWindow(window)) {
       window.webContents.send(desktopIpc.stateChanged, state);
     }
   });
-  stopPublishingSelectedTranscript = store.subscribeToSelectedTranscript((payload) => {
-    if (canPublishToWindow(window)) {
-      window.webContents.send(desktopIpc.selectedTranscriptChanged, payload);
-    }
-  });
   window.webContents.once("render-process-gone", () => {
     stopPublishingState?.();
     stopPublishingState = undefined;
-    stopPublishingSelectedTranscript?.();
-    stopPublishingSelectedTranscript = undefined;
   });
   window.once("closed", () => {
     stopPublishingState?.();
     stopPublishingState = undefined;
-    stopPublishingSelectedTranscript?.();
-    stopPublishingSelectedTranscript = undefined;
     if (mainWindow === window) {
       mainWindow = null;
     }
@@ -305,7 +294,6 @@ app.whenReady().then(async () => {
     return shell.openExternal(url);
   });
   ipcMain.handle(desktopIpc.stateRequest, () => store.getState());
-  ipcMain.handle(desktopIpc.selectedTranscriptRequest, () => store.getSelectedTranscript());
   ipcMain.handle(desktopIpc.addWorkspacePath, (_event, workspacePath: string) => store.addWorkspace(workspacePath));
   ipcMain.handle(desktopIpc.pickWorkspace, () => pickWorkspaceViaDialog());
   ipcMain.handle(desktopIpc.selectWorkspace, (_event, workspaceId: string) => store.selectWorkspace(workspaceId));
@@ -426,6 +414,14 @@ app.whenReady().then(async () => {
     store.updateComposerDraft(composerDraft),
   );
   ipcMain.handle(desktopIpc.submitComposer, (_event, text: string) => store.submitComposer(text));
+  ipcMain.handle(desktopIpc.getSessionTree, (_event, target: WorkspaceSessionTarget) =>
+    store.getSessionTree(target),
+  );
+  ipcMain.handle(
+    desktopIpc.navigateSessionTree,
+    (_event, target: WorkspaceSessionTarget, targetId: string, options) =>
+      store.navigateSessionTree(target, targetId, options),
+  );
   ipcMain.handle(desktopIpc.listWorkspaceFiles, async (_event, workspaceId: string) => {
     const workspacePath = store.getWorkspacePath(workspaceId);
     if (!workspacePath) {

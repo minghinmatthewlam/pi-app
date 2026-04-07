@@ -247,8 +247,8 @@ export async function sendMessageToSession(
     text,
     toTranscriptAttachments(attachments),
   );
-  store.publishSelectedTranscriptFor(sessionRef);
   store.persistTranscriptCacheForSession(sessionRef);
+  store.emit();
   clearActiveAssistantMessage(store.sessionState.activeAssistantMessageBySession, sessionRef);
   store.sessionState.sessionErrorsBySession.delete(key);
   store.sessionState.composerDraftsBySession.delete(key);
@@ -263,8 +263,8 @@ export async function sendMessageToSession(
     if (rollbackOptimisticMessageOnError) {
       const transcript = store.sessionState.transcriptCache.get(key) ?? [];
       store.sessionState.transcriptCache.set(key, transcript.slice(0, -1));
-      store.publishSelectedTranscriptFor(sessionRef);
       store.persistTranscriptCacheForSession(sessionRef);
+      store.emit();
     }
     throw error;
   }
@@ -393,7 +393,5 @@ function finishComposerCommand(
     revision: store.state.revision + 1,
   };
   store.schedulePersistUiState();
-  const snapshot = store.emit();
-  store.publishSelectedTranscriptFor(sessionRef);
-  return snapshot;
+  return store.emit();
 }

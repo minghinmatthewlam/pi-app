@@ -52,6 +52,7 @@ export interface SessionRecord {
 export interface SelectedTranscriptRecord {
   readonly workspaceId: string;
   readonly sessionId: string;
+  readonly status: "loading" | "ready";
   readonly transcript: readonly TranscriptMessage[];
 }
 
@@ -138,6 +139,7 @@ export interface DesktopAppState {
   readonly worktreesByWorkspace: Readonly<Record<string, readonly WorktreeRecord[]>>;
   readonly selectedWorkspaceId: string;
   readonly selectedSessionId: string;
+  readonly selectedSessionTranscript: SelectedTranscriptRecord | null;
   readonly activeView: AppView;
   readonly composerDraft: string;
   readonly composerAttachments: readonly ComposerAttachment[];
@@ -170,6 +172,7 @@ export function createEmptyDesktopAppState(): DesktopAppState {
     worktreesByWorkspace: {},
     selectedWorkspaceId: "",
     selectedSessionId: "",
+    selectedSessionTranscript: null,
     activeView: "threads",
     composerDraft: "",
     composerAttachments: [],

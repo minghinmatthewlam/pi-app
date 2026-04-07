@@ -152,11 +152,49 @@ test("switching sessions republishes the selected transcript", async () => {
     await expect(window.locator(".topbar__session")).toHaveText("Thread one");
     await expect(window.getByTestId("transcript")).toContainText("alpha response");
     await expect(window.getByTestId("transcript")).not.toContainText("Loading transcript");
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        return {
+          idsMatch:
+            state.selectedWorkspaceId === (state.selectedSessionTranscript?.workspaceId ?? "") &&
+            state.selectedSessionId === (state.selectedSessionTranscript?.sessionId ?? ""),
+          transcriptStatus: state.selectedSessionTranscript?.status ?? "missing",
+          transcriptText: state.selectedSessionTranscript?.transcript
+            .filter((entry) => entry.kind === "message")
+            .map((entry) => entry.text)
+            .join("\n"),
+        };
+      })
+      .toMatchObject({
+        idsMatch: true,
+        transcriptStatus: "ready",
+        transcriptText: expect.stringContaining("alpha response"),
+      });
 
     await selectSession(window, "Thread two");
     await expect(window.locator(".topbar__session")).toHaveText("Thread two");
     await expect(window.getByTestId("transcript")).toContainText("beta response");
     await expect(window.getByTestId("transcript")).not.toContainText("Loading transcript");
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        return {
+          idsMatch:
+            state.selectedWorkspaceId === (state.selectedSessionTranscript?.workspaceId ?? "") &&
+            state.selectedSessionId === (state.selectedSessionTranscript?.sessionId ?? ""),
+          transcriptStatus: state.selectedSessionTranscript?.status ?? "missing",
+          transcriptText: state.selectedSessionTranscript?.transcript
+            .filter((entry) => entry.kind === "message")
+            .map((entry) => entry.text)
+            .join("\n"),
+        };
+      })
+      .toMatchObject({
+        idsMatch: true,
+        transcriptStatus: "ready",
+        transcriptText: expect.stringContaining("beta response"),
+      });
   } finally {
     await harness.close();
   }

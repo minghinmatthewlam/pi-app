@@ -1,7 +1,12 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { PRELOAD_DEV_RELOAD_MARKER } from "./dev-reload-preload-probe";
 import { desktopIpc, type PiDesktopCommand } from "../src/ipc";
-import type { HostUiResponse } from "@pi-gui/session-driver";
+import type {
+  HostUiResponse,
+  NavigateSessionTreeOptions,
+  NavigateSessionTreeResult,
+  SessionTreeSnapshot,
+} from "@pi-gui/session-driver";
 import type { RuntimeSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type {
   AppView,
@@ -12,7 +17,6 @@ import type {
   DesktopAppState,
   NotificationPreferences,
   RemoveWorktreeInput,
-  SelectedTranscriptRecord,
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
@@ -47,17 +51,6 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.on(desktopIpc.stateChanged, handle);
     return () => {
       ipcRenderer.removeListener(desktopIpc.stateChanged, handle);
-    };
-  },
-  getSelectedTranscript: () =>
-    ipcRenderer.invoke(desktopIpc.selectedTranscriptRequest) as Promise<SelectedTranscriptRecord | null>,
-  onSelectedTranscriptChanged: (listener: (payload: SelectedTranscriptRecord | null) => void) => {
-    const handle = (_event: Electron.IpcRendererEvent, payload: SelectedTranscriptRecord | null) => {
-      listener(payload);
-    };
-    ipcRenderer.on(desktopIpc.selectedTranscriptChanged, handle);
-    return () => {
-      ipcRenderer.removeListener(desktopIpc.selectedTranscriptChanged, handle);
     };
   },
   onCommand: (listener: (command: PiDesktopCommand) => void) => {
@@ -164,6 +157,13 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.updateComposerDraft, composerDraft) as Promise<DesktopAppState>,
   submitComposer: (text: string) =>
     ipcRenderer.invoke(desktopIpc.submitComposer, text) as Promise<DesktopAppState>,
+  getSessionTree: (target: WorkspaceSessionTarget) =>
+    ipcRenderer.invoke(desktopIpc.getSessionTree, target) as Promise<SessionTreeSnapshot>,
+  navigateSessionTree: (target: WorkspaceSessionTarget, targetId: string, options?: NavigateSessionTreeOptions) =>
+    ipcRenderer.invoke(desktopIpc.navigateSessionTree, target, targetId, options) as Promise<{
+      readonly state: DesktopAppState;
+      readonly result: NavigateSessionTreeResult;
+    }>,
   listWorkspaceFiles: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.listWorkspaceFiles, workspaceId) as Promise<string[]>,
   getChangedFiles: (workspaceId: string) =>

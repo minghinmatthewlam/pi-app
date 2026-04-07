@@ -736,13 +736,8 @@ export async function getDesktopState(window: Page): Promise<DesktopAppState> {
 }
 
 export async function getSelectedTranscript(window: Page): Promise<SelectedTranscriptRecord | null> {
-  return window.evaluate(async () => {
-    const app = (window as PiAppWindow).piApp;
-    if (!app) {
-      throw new Error("piApp IPC bridge is unavailable");
-    }
-    return app.getSelectedTranscript();
-  });
+  const state = await getDesktopState(window);
+  return state.selectedSessionTranscript;
 }
 
 export interface TimelineScrollMetrics {

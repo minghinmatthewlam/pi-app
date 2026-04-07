@@ -8,8 +8,8 @@ import {
   type ComposerImageAttachment,
   type DesktopAppState,
   type NewThreadEnvironment,
-  type SelectedTranscriptRecord,
   type StartThreadInput,
+  type TranscriptMessage,
   type WorktreeRecord,
   type WorkspaceRecord,
 } from "./desktop-state";
@@ -43,7 +43,6 @@ import {
 
 function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
-  const [selectedTranscript, setSelectedTranscript] = useState<SelectedTranscriptRecord | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -52,12 +51,11 @@ function useDesktopAppState() {
       return undefined;
     }
 
-    void Promise.all([api.getState(), api.getSelectedTranscript()]).then(([state, transcript]) => {
+    void api.getState().then((state) => {
       if (!active) {
         return;
       }
       setSnapshot(state);
-      setSelectedTranscript(transcript);
     });
 
     const unsubscribeState = api.onStateChanged((state) => {
@@ -65,20 +63,14 @@ function useDesktopAppState() {
         setSnapshot(state);
       }
     });
-    const unsubscribeTranscript = api.onSelectedTranscriptChanged((payload) => {
-      if (active) {
-        setSelectedTranscript(payload);
-      }
-    });
 
     return () => {
       active = false;
       unsubscribeState();
-      unsubscribeTranscript();
     };
   }, []);
 
-  return [snapshot, setSnapshot, selectedTranscript] as const;
+  return [snapshot, setSnapshot] as const;
 }
 
 function updateSnapshot(
@@ -130,7 +122,7 @@ function formatRunningLabel(startedAt: string | undefined): string {
 }
 
 export default function App() {
-  const [snapshot, setSnapshot, selectedTranscript] = useDesktopAppState();
+  const [snapshot, setSnapshot] = useDesktopAppState();
   const [composerDraft, setComposerDraft] = useState("");
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [settingsWorkspaceId, setSettingsWorkspaceId] = useState("");
@@ -181,8 +173,8 @@ export default function App() {
     return unsub;
   }, []);
 
-  const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
-  const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
+  const selectedWorkspace = snapshot ? getSelectedWorkspace(snapshot) : undefined;
+  const selectedSession = snapshot ? getSelectedSession(snapshot) : undefined;
   const {
     activeWorktrees,
     linkedWorktreeByWorkspaceId,
@@ -280,19 +272,9 @@ export default function App() {
   const composerAttachments = attachmentsClearedOnSubmit ? [] : (snapshot?.composerAttachments ?? []);
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = `${selectedWorkspace?.id ?? ""}:${selectedSession?.id ?? ""}`;
-  const activeTranscript =
-    selectedTranscript &&
-    selectedWorkspace &&
-    selectedSession &&
-    selectedTranscript.workspaceId === selectedWorkspace.id &&
-    selectedTranscript.sessionId === selectedSession.id
-      ? selectedTranscript.transcript
-      : [];
-  const isTranscriptLoading = Boolean(selectedSession) && activeTranscript.length === 0 && (
-    !selectedTranscript ||
-    selectedTranscript.workspaceId !== selectedWorkspace?.id ||
-    selectedTranscript.sessionId !== selectedSession?.id
-  );
+  const selectedTranscript = snapshot?.selectedSessionTranscript;
+  const activeTranscript = selectedTranscript?.transcript ?? [];
+  const isTranscriptLoading = selectedTranscript?.status === "loading";
   const selectedSessionCommands = selectedSession ? snapshot?.sessionCommandsBySession[selectedSessionKey] ?? [] : [];
   const selectedExtensionUi = selectedSession ? snapshot?.sessionExtensionUiBySession[selectedSessionKey] : undefined;
   const selectedWorkspaceCommandCompatibility = selectedWorkspace
@@ -1677,7 +1659,7 @@ export default function App() {
   );
 }
 
-function buildTranscriptChangeMarker(sessionKey: string, transcript: SelectedTranscriptRecord["transcript"]): string {
+function buildTranscriptChangeMarker(sessionKey: string, transcript: readonly TranscriptMessage[]): string {
   const lastItem = transcript.at(-1);
   return `${sessionKey}:${transcript.length}:${lastItem ? JSON.stringify(lastItem) : ""}`;
 }

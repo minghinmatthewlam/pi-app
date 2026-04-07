@@ -65,8 +65,6 @@ export interface AppStoreInternals {
   getPendingAutoTitle(sessionRef: SessionRef): PendingAutoTitle | undefined;
   clearPendingAutoTitle(sessionRef: SessionRef): void;
   reloadTranscriptFromDriver(sessionRef: SessionRef): Promise<void>;
-  publishSelectedTranscript(): void;
-  publishSelectedTranscriptFor(sessionRef: SessionRef): void;
   buildCreateSessionOptions(workspaceId: string): Promise<CreateSessionOptions | undefined>;
 }
 

@@ -14,10 +14,13 @@ import type { SessionCatalogEntry } from "@pi-gui/catalogs";
 import type {
   CreateSessionOptions,
   HostUiResponse,
+  NavigateSessionTreeOptions,
+  NavigateSessionTreeResult,
   SessionConfig,
   SessionDriverEvent,
   SessionRef,
   SessionSnapshot,
+  SessionTreeSnapshot,
   WorkspaceRef,
 } from "@pi-gui/session-driver";
 import type {
@@ -85,7 +88,6 @@ import * as composer from "./app-store-composer";
 import { isSessionActivelyViewed } from "./session-visibility";
 
 type StateListener = (state: DesktopAppState) => void;
-type SelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
 type SessionEventListener = (event: SessionDriverEvent, state: DesktopAppState) => void | Promise<void>;
 type TranscriptMessageRow = Extract<TranscriptMessage, { kind: "message" }>;
 
@@ -119,7 +121,6 @@ export interface DesktopAppStoreOptions {
 export class DesktopAppStore implements AppStoreInternals {
   state = createEmptyDesktopAppState();
   private readonly listeners = new Set<StateListener>();
-  private readonly selectedTranscriptListeners = new Set<SelectedTranscriptListener>();
   private readonly sessionEventListeners = new Set<SessionEventListener>();
   readonly driver: PiSdkDriver;
   readonly catalogStore: JsonCatalogStore;
@@ -170,17 +171,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async getState(): Promise<DesktopAppState> {
     await this.initialize();
-    return structuredClone(this.state);
-  }
-
-  async getSelectedTranscript(): Promise<SelectedTranscriptRecord | null> {
-    await this.initialize();
-    const sessionRef = this.selectedSessionRef();
-    if (!sessionRef) {
-      return null;
-    }
-    await this.ensureTranscriptLoaded(sessionRef);
-    return this.buildSelectedTranscriptRecord(sessionRef);
+    return this.createSnapshot();
   }
 
   async flushPersistence(): Promise<void> {
@@ -213,14 +204,6 @@ export class DesktopAppStore implements AppStoreInternals {
     void this.getState().then(listener).catch(() => undefined);
     return () => {
       this.listeners.delete(listener);
-    };
-  }
-
-  subscribeToSelectedTranscript(listener: SelectedTranscriptListener): () => void {
-    this.selectedTranscriptListeners.add(listener);
-    void this.getSelectedTranscript().then(listener).catch(() => undefined);
-    return () => {
-      this.selectedTranscriptListeners.delete(listener);
     };
   }
 
@@ -301,7 +284,7 @@ export class DesktopAppStore implements AppStoreInternals {
       } catch (error) {
         await this.handleSelectedSessionHydrationError(sessionRef, selectionEpoch, error);
       }
-      return structuredClone(this.state);
+      return this.createSnapshot();
     });
   }
 
@@ -347,6 +330,41 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async cancelCurrentRun(): Promise<DesktopAppState> {
     return composer.cancelCurrentRun(this);
+  }
+
+  async getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot> {
+    await this.initialize();
+    const sessionRef = toSessionRef(target);
+    await this.ensureSessionReady(sessionRef);
+    return this.driver.getSessionTree(sessionRef);
+  }
+
+  async navigateSessionTree(
+    target: WorkspaceSessionTarget,
+    targetId: string,
+    options?: NavigateSessionTreeOptions,
+  ): Promise<{ readonly state: DesktopAppState; readonly result: NavigateSessionTreeResult }> {
+    await this.initialize();
+    const sessionRef = toSessionRef(target);
+    await this.ensureSessionReady(sessionRef);
+
+    const result = await this.driver.navigateSessionTree(sessionRef, targetId, options);
+    if (!result.cancelled && !result.aborted) {
+      await this.reloadTranscriptFromDriver(sessionRef);
+      await this.refreshSessionCommandsFor(sessionRef);
+      const state = await this.refreshState({
+        selectedWorkspaceId: target.workspaceId,
+        selectedSessionId: target.sessionId,
+        clearLastError: true,
+        markSelectedSessionViewed: false,
+      });
+      return { state, result };
+    }
+
+    return {
+      state: this.createSnapshot(),
+      result,
+    };
   }
 
   /* ── Session / thread methods (delegated) ───────────────── */
@@ -788,9 +806,11 @@ export class DesktopAppStore implements AppStoreInternals {
         }
       }
 
-      if (selectedWorkspaceId) {
-        await this.ensureRuntimeLoaded(selectedWorkspaceId, workspacesSnapshot.workspaces);
-      }
+    await Promise.all(
+      workspacesSnapshot.workspaces
+        .filter((workspace) => !this.runtimeByWorkspace.has(workspace.workspaceId))
+        .map((workspace) => this.ensureRuntimeLoaded(workspace.workspaceId, workspacesSnapshot.workspaces)),
+    );
       for (const runtime of this.runtimeByWorkspace.values()) {
         pruneCompatibilityForRuntimeSnapshot(this.extensionCommandCompatibilityByWorkspace, runtime);
       }
@@ -843,9 +863,6 @@ export class DesktopAppStore implements AppStoreInternals {
 
       await this.persistUiState();
       const snapshot = this.emit();
-      if (this.currentSelectedSessionKey() !== previousSelectedKey) {
-        this.publishSelectedTranscript();
-      }
       return snapshot;
     } finally {
       this.refreshStateDepth = Math.max(0, this.refreshStateDepth - 1);
@@ -911,7 +928,6 @@ export class DesktopAppStore implements AppStoreInternals {
     this.sessionState.loadedTranscriptKeys.add(key);
     this.sessionState.transcriptCache.set(key, transcript);
     void this.writePersistedTranscript(key, transcript);
-    this.publishSelectedTranscriptFor(sessionRef);
   }
 
   private async ensureComposerAttachmentsLoaded(sessionRef: SessionRef): Promise<void> {
@@ -941,7 +957,7 @@ export class DesktopAppStore implements AppStoreInternals {
       return;
     }
 
-    const snapshot = await this.driver.runtimeSupervisor.refreshRuntime({
+    const snapshot = await this.driver.runtimeSupervisor.getRuntimeSnapshot({
       workspaceId: ws.workspaceId,
       path: ws.path,
       displayName: ws.displayName,
@@ -1287,7 +1303,6 @@ export class DesktopAppStore implements AppStoreInternals {
       this.schedulePersistUiState();
     }
     const snapshot = this.emit();
-    this.publishSelectedTranscriptFor(event.sessionRef);
     await this.emitSessionEvent(event, snapshot);
   }
 
@@ -1658,34 +1673,29 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   private buildSelectedTranscriptRecord(sessionRef: SessionRef): SelectedTranscriptRecord {
+    const key = sessionKey(sessionRef);
     return {
       workspaceId: sessionRef.workspaceId,
       sessionId: sessionRef.sessionId,
-      transcript: (this.sessionState.transcriptCache.get(sessionKey(sessionRef)) ?? []).map(cloneTranscriptMessage),
+      status: this.sessionState.loadedTranscriptKeys.has(key) ? "ready" : "loading",
+      transcript: (this.sessionState.transcriptCache.get(key) ?? []).map(cloneTranscriptMessage),
     };
   }
 
+  private createSnapshot(): DesktopAppState {
+    const sessionRef = this.selectedSessionRef();
+    return structuredClone({
+      ...this.state,
+      selectedSessionTranscript: sessionRef ? this.buildSelectedTranscriptRecord(sessionRef) : null,
+    } satisfies DesktopAppState);
+  }
+
   emit(): DesktopAppState {
-    const snapshot = structuredClone(this.state);
+    const snapshot = this.createSnapshot();
     for (const listener of this.listeners) {
       listener(snapshot);
     }
     return snapshot;
-  }
-
-  publishSelectedTranscript(): void {
-    const sessionRef = this.selectedSessionRef();
-    const payload = sessionRef ? this.buildSelectedTranscriptRecord(sessionRef) : null;
-    for (const listener of this.selectedTranscriptListeners) {
-      listener(payload);
-    }
-  }
-
-  publishSelectedTranscriptFor(sessionRef: SessionRef): void {
-    if (!this.isSelectedSession(sessionRef)) {
-      return;
-    }
-    this.publishSelectedTranscript();
   }
 
   private async emitSessionEvent(event: SessionDriverEvent, snapshot: DesktopAppState): Promise<void> {
@@ -1730,11 +1740,7 @@ export class DesktopAppStore implements AppStoreInternals {
     };
     this.markSessionViewed(sessionRef, new Date().toISOString());
     this.schedulePersistUiState();
-    const snapshot = this.emit();
-    if (this.sessionState.loadedTranscriptKeys.has(sessionKey(sessionRef))) {
-      this.publishSelectedTranscript();
-    }
-    return snapshot;
+    return this.emit();
   }
 
   private async hydrateSelectedSessionAfterSelection(sessionRef: SessionRef, selectionEpoch: number): Promise<void> {
@@ -1759,7 +1765,6 @@ export class DesktopAppStore implements AppStoreInternals {
     this.state = this.syncSelectedSessionHydrationState(this.state, sessionRef, snapshot, runtimeByWorkspace);
     this.schedulePersistUiState();
     this.emit();
-    this.publishSelectedTranscriptFor(sessionRef);
   }
 
   private async handleSelectedSessionHydrationError(
@@ -2183,5 +2188,15 @@ function resolveSelectedSessionIdFromCatalog(
   ) {
     return preferredSessionId;
   }
-  return workspaceSessions[0]?.sessionRef.sessionId ?? "";
+  const activeCandidates = workspaceSessions.filter((session) => !session.archivedAt);
+  const rankedCandidates = (activeCandidates.length > 0 ? activeCandidates : workspaceSessions).sort((left, right) => {
+    if (left.updatedAt !== right.updatedAt) {
+      return right.updatedAt.localeCompare(left.updatedAt);
+    }
+    if (left.title !== right.title) {
+      return left.title.localeCompare(right.title);
+    }
+    return left.sessionRef.sessionId.localeCompare(right.sessionRef.sessionId);
+  });
+  return rankedCandidates[0]?.sessionRef.sessionId ?? "";
 }

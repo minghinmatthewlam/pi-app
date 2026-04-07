@@ -9,16 +9,18 @@ import type {
   ModelSettingsScopeMode,
   NotificationPreferences,
   RemoveWorktreeInput,
-  SelectedTranscriptRecord,
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "./desktop-state";
+import type {
+  NavigateSessionTreeOptions,
+  NavigateSessionTreeResult,
+  SessionTreeSnapshot,
+} from "@pi-gui/session-driver";
 
 export const desktopIpc = {
   stateRequest: "pi-gui:state-request",
   stateChanged: "pi-gui:state-changed",
-  selectedTranscriptRequest: "pi-gui:selected-transcript-request",
-  selectedTranscriptChanged: "pi-gui:selected-transcript-changed",
   appCommand: "pi-gui:app-command",
   workspacePicked: "pi-gui:workspace-picked",
   clipboardImagePasted: "pi-gui:clipboard-image-pasted",
@@ -62,6 +64,8 @@ export const desktopIpc = {
   removeComposerAttachment: "pi-gui:remove-composer-attachment",
   updateComposerDraft: "pi-gui:update-composer-draft",
   submitComposer: "pi-gui:submit-composer",
+  getSessionTree: "pi-gui:get-session-tree",
+  navigateSessionTree: "pi-gui:navigate-session-tree",
   toggleWindowMaximize: "pi-gui:toggle-window-maximize",
   listWorkspaceFiles: "pi-gui:list-workspace-files",
   getChangedFiles: "pi-gui:get-changed-files",
@@ -81,7 +85,6 @@ export const desktopCommands = {
 } as const;
 
 export type PiDesktopStateListener = (state: DesktopAppState) => void;
-export type PiDesktopSelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
 export type PiDesktopCommand = (typeof desktopCommands)[keyof typeof desktopCommands];
 
 export interface DesktopShortcutInput {
@@ -117,8 +120,6 @@ export interface PiDesktopApi {
   ping(): Promise<string>;
   getState(): Promise<DesktopAppState>;
   onStateChanged(listener: PiDesktopStateListener): () => void;
-  getSelectedTranscript(): Promise<SelectedTranscriptRecord | null>;
-  onSelectedTranscriptChanged(listener: PiDesktopSelectedTranscriptListener): () => void;
   onCommand(listener: (command: PiDesktopCommand) => void): () => void;
   onWorkspacePicked(listener: (workspaceId: string) => void): () => void;
   onClipboardImagePasted(listener: (attachment: ComposerImageAttachment) => void): () => void;
@@ -182,6 +183,12 @@ export interface PiDesktopApi {
   removeComposerAttachment(attachmentId: string): Promise<DesktopAppState>;
   updateComposerDraft(composerDraft: string): Promise<DesktopAppState>;
   submitComposer(text: string): Promise<DesktopAppState>;
+  getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot>;
+  navigateSessionTree(
+    target: WorkspaceSessionTarget,
+    targetId: string,
+    options?: NavigateSessionTreeOptions,
+  ): Promise<{ readonly state: DesktopAppState; readonly result: NavigateSessionTreeResult }>;
   listWorkspaceFiles(workspaceId: string): Promise<string[]>;
   getChangedFiles(workspaceId: string): Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked" }[]>;
   getFileDiff(workspaceId: string, filePath: string): Promise<string>;
