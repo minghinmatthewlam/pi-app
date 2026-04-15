@@ -16,6 +16,17 @@ export interface SessionRef {
 
 export type SessionStatus = "idle" | "running" | "failed";
 
+export type SessionMessageDeliveryMode = "steer" | "followUp";
+
+export interface SessionQueuedMessage {
+  readonly id: string;
+  readonly mode: SessionMessageDeliveryMode;
+  readonly text: string;
+  readonly attachments?: readonly SessionAttachment[];
+  readonly createdAt: Timestamp;
+  readonly updatedAt: Timestamp;
+}
+
 export interface SessionSnapshot {
   readonly ref: SessionRef;
   readonly workspace: WorkspaceRef;
@@ -26,6 +37,7 @@ export interface SessionSnapshot {
   readonly preview?: string;
   readonly config?: SessionConfig;
   readonly runningRunId?: RunId;
+  readonly queuedMessages?: readonly SessionQueuedMessage[];
 }
 
 export interface SessionImageAttachment {
@@ -100,6 +112,7 @@ export interface SessionModelSelection {
 export interface SessionMessageInput {
   readonly text: string;
   readonly attachments?: readonly SessionAttachment[];
+  readonly deliverAs?: SessionMessageDeliveryMode;
 }
 
 export interface CreateSessionOptions {
@@ -291,6 +304,7 @@ export interface SessionDriver {
   archiveSession(sessionRef: SessionRef): Promise<void>;
   unarchiveSession(sessionRef: SessionRef): Promise<void>;
   sendUserMessage(sessionRef: SessionRef, input: SessionMessageInput): Promise<void>;
+  replaceQueuedMessages(sessionRef: SessionRef, messages: readonly SessionQueuedMessage[]): Promise<void>;
   cancelCurrentRun(sessionRef: SessionRef): Promise<void>;
   setSessionModel(sessionRef: SessionRef, selection: SessionModelSelection): Promise<void>;
   setSessionThinkingLevel(sessionRef: SessionRef, thinkingLevel: string): Promise<void>;

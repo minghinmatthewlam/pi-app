@@ -3,6 +3,7 @@ import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot, WorkspaceId } fr
 import type {
   NavigateSessionTreeOptions,
   NavigateSessionTreeResult,
+  SessionQueuedMessage,
   SessionTreeSnapshot,
 } from "@pi-gui/session-driver/types";
 import type {
@@ -67,6 +68,10 @@ export class PiSdkDriver implements SessionDriver {
 
   sendUserMessage(sessionRef: SessionRef, input: SessionMessageInput): Promise<void> {
     return this.supervisor.sendUserMessage(sessionRef, input);
+  }
+
+  replaceQueuedMessages(sessionRef: SessionRef, messages: readonly SessionQueuedMessage[]): Promise<void> {
+    return this.supervisor.replaceQueuedMessages(sessionRef, messages);
   }
 
   cancelCurrentRun(sessionRef: SessionRef): Promise<void> {

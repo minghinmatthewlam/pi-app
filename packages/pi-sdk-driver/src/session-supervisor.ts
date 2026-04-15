@@ -16,6 +16,9 @@ import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot } from "@pi-gui/c
 import type {
   NavigateSessionTreeOptions,
   NavigateSessionTreeResult,
+  SessionMessageDeliveryMode,
+  SessionMessageInput,
+  SessionQueuedMessage,
   SessionTreeNodeSnapshot,
   SessionTreeSnapshot,
 } from "@pi-gui/session-driver/types";
@@ -27,7 +30,6 @@ import type {
   SessionDriverEvent,
   SessionEventListener,
   SessionModelSelection,
-  SessionMessageInput,
   SessionRef,
   SessionSnapshot,
   SessionStatus,
@@ -56,6 +58,7 @@ import {
   extractPreview,
   forcePersistSession,
   injectFileAttachmentPreamble,
+  messageText,
   nowIso,
   previewFromSessionInfo,
   sessionKey,
@@ -95,6 +98,7 @@ interface ManagedSessionRecord {
   preview: string | undefined;
   config: SessionConfig | undefined;
   runningRunId: string | undefined;
+  queuedMessages: SessionQueuedMessage[];
   closed: boolean;
   listeners: Set<SessionEventListener>;
   eventQueue: Promise<void>;
@@ -351,21 +355,28 @@ export class SessionSupervisor {
     const record = await this.ensureRecord(sessionRef);
     const session = this.requireSession(record);
     const isExtensionCommand = this.isExtensionCommand(session, input.text);
-    if (session.isStreaming && !isExtensionCommand) {
-      throw new Error("Session is already streaming. TODO: expose steer/follow-up queueing on the driver API.");
+    if (session.isStreaming && !isExtensionCommand && !input.deliverAs) {
+      throw new Error("Session is already streaming. Specify deliverAs ('steer' or 'followUp') to queue the message.");
     }
 
-    const runId = isExtensionCommand ? undefined : crypto.randomUUID();
-    record.runningRunId = runId;
-    record.status = isExtensionCommand ? record.status : "running";
+    const isQueuedMessage = session.isStreaming && !isExtensionCommand && Boolean(input.deliverAs);
+    const runId = isQueuedMessage || isExtensionCommand ? undefined : crypto.randomUUID();
+    record.runningRunId = runId ?? record.runningRunId;
+    record.status = isQueuedMessage || isExtensionCommand ? record.status : "running";
     record.updatedAt = nowIso();
     record.config = deriveSessionConfig(session.sessionManager);
     record.preview = truncate(input.text);
+    if (isQueuedMessage) {
+      record.queuedMessages = [
+        ...record.queuedMessages,
+        queuedMessageFromInput(input, record.updatedAt),
+      ];
+    }
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
 
     try {
-      const images = input.attachments?.flatMap((attachment) =>
+      const images = input.attachments?.flatMap((attachment: NonNullable<SessionMessageInput["attachments"]>[number]) =>
         attachment.kind === "image"
           ? [{
               type: "image" as const,
@@ -375,17 +386,26 @@ export class SessionSupervisor {
           : [],
       );
       const promptText = injectFileAttachmentPreamble(input.text, input.attachments);
-      await session.prompt(promptText, {
-        ...(images && images.length > 0 ? { images } : {}),
-        source: "interactive",
-      });
+      if (isQueuedMessage) {
+        await this.queuePrompt(session, promptText, input.deliverAs!, images);
+      } else {
+        await session.prompt(promptText, {
+          ...(images && images.length > 0 ? { images } : {}),
+          source: "interactive",
+        });
+      }
 
       if (isExtensionCommand) {
         await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
       }
     } catch (error) {
-      record.runningRunId = undefined;
-      record.status = isExtensionCommand ? "idle" : "failed";
+      if (isQueuedMessage) {
+        record.queuedMessages = record.queuedMessages.slice(0, -1);
+      }
+      if (!isQueuedMessage) {
+        record.runningRunId = undefined;
+      }
+      record.status = isQueuedMessage ? "running" : isExtensionCommand ? "idle" : "failed";
       record.updatedAt = nowIso();
       record.preview = error instanceof Error ? error.message : String(error);
       await this.persistSnapshot(record);
@@ -399,6 +419,31 @@ export class SessionSupervisor {
       await this.emit(record, sessionUpdatedEvent(record));
       throw error;
     }
+  }
+
+  async replaceQueuedMessages(sessionRef: SessionRef, messages: readonly SessionQueuedMessage[]): Promise<void> {
+    const record = await this.ensureRecord(sessionRef);
+    const session = this.requireSession(record);
+    session.clearQueue();
+
+    record.queuedMessages = messages.map((message) => cloneQueuedMessage(message));
+    for (const message of record.queuedMessages) {
+      const images = message.attachments?.flatMap((attachment: NonNullable<SessionQueuedMessage["attachments"]>[number]) =>
+        attachment.kind === "image"
+          ? [{
+              type: "image" as const,
+              data: attachment.data,
+              mimeType: attachment.mimeType,
+            }]
+          : [],
+      );
+      const promptText = injectFileAttachmentPreamble(message.text, message.attachments);
+      await this.queuePrompt(session, promptText, message.mode, images);
+    }
+
+    record.updatedAt = nowIso();
+    await this.persistSnapshot(record);
+    await this.emit(record, sessionUpdatedEvent(record));
   }
 
   async cancelCurrentRun(sessionRef: SessionRef): Promise<void> {
@@ -642,6 +687,7 @@ export class SessionSupervisor {
       preview: undefined,
       config: deriveSessionConfig(session.sessionManager),
       runningRunId: undefined,
+      queuedMessages: [],
       closed: false,
       listeners: new Set<SessionEventListener>(),
       eventQueue: Promise.resolve(),
@@ -911,6 +957,23 @@ export class SessionSupervisor {
     return Boolean(session.extensionRunner?.getCommand(commandName));
   }
 
+  private async queuePrompt(
+    session: AgentSession,
+    text: string,
+    deliverAs: SessionMessageDeliveryMode,
+    images?: readonly {
+      readonly type: "image";
+      readonly data: string;
+      readonly mimeType: string;
+    }[],
+  ): Promise<void> {
+    if (deliverAs === "steer") {
+      await session.steer(text, images ? [...images] : undefined);
+      return;
+    }
+    await session.followUp(text, images ? [...images] : undefined);
+  }
+
   private resolveModel(provider: string, modelId: string) {
     const model = this.modelRegistry?.find(provider, modelId);
     if (!model) {
@@ -1163,6 +1226,9 @@ export class SessionSupervisor {
         return [sessionUpdatedEvent(record)];
       case "message_start":
       case "message_end":
+        if (event.message.role === "user") {
+          reconcileQueuedMessagesForStartedUserMessage(record, event.message, timestamp);
+        }
         this.updatePreviewFromMessage(record, event.message);
         return [sessionUpdatedEvent(record)];
       case "message_update":
@@ -1763,6 +1829,60 @@ const extensionUiThemeStub = new Proxy(
     },
   },
 ) as ExtensionUIContext["theme"];
+
+function cloneQueuedMessage(message: SessionQueuedMessage): SessionQueuedMessage {
+  return {
+    ...message,
+    ...(message.attachments
+      ? {
+          attachments: message.attachments.map((attachment: NonNullable<SessionQueuedMessage["attachments"]>[number]) => ({ ...attachment })),
+        }
+      : {}),
+  };
+}
+
+function queuedMessageFromInput(input: SessionMessageInput, timestamp: string): SessionQueuedMessage {
+  return {
+    id: crypto.randomUUID(),
+    mode: input.deliverAs!,
+    text: input.text,
+    ...(input.attachments
+      ? {
+          attachments: input.attachments.map((attachment) => ({ ...attachment })),
+        }
+      : {}),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function reconcileQueuedMessagesForStartedUserMessage(
+  record: ManagedSessionRecord,
+  message: unknown,
+  timestamp: string,
+): void {
+  if (typeof message !== "object" || message === null) {
+    return;
+  }
+
+  const text = messageText(message as Record<string, unknown>);
+  if (!text) {
+    return;
+  }
+
+  const steeringIndex = record.queuedMessages.findIndex((item) => item.mode === "steer" && item.text === text);
+  if (steeringIndex !== -1) {
+    record.queuedMessages.splice(steeringIndex, 1);
+    record.updatedAt = timestamp;
+    return;
+  }
+
+  const followUpIndex = record.queuedMessages.findIndex((item) => item.mode === "followUp" && item.text === text);
+  if (followUpIndex !== -1) {
+    record.queuedMessages.splice(followUpIndex, 1);
+    record.updatedAt = timestamp;
+  }
+}
 
 function sessionUpdatedEvent(record: ManagedSessionRecord): SessionDriverEvent {
   return {

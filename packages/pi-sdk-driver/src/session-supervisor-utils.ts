@@ -9,6 +9,7 @@ import type {
   SessionStatus,
   WorkspaceRef,
 } from "@pi-gui/session-driver";
+import type { SessionQueuedMessage } from "@pi-gui/session-driver/types";
 import type { SessionTranscriptAttachment, SessionTranscriptMessage } from "./transcript.js";
 
 const FILE_ATTACHMENT_BLOCK_START = "<pi-gui-file-attachments>";
@@ -24,6 +25,7 @@ export interface SnapshotSource {
   readonly preview: string | undefined;
   readonly config: SessionConfig | undefined;
   readonly runningRunId: string | undefined;
+  readonly queuedMessages: readonly SessionQueuedMessage[];
 }
 
 export function buildSnapshot(source: SnapshotSource): SessionSnapshot {
@@ -37,6 +39,18 @@ export function buildSnapshot(source: SnapshotSource): SessionSnapshot {
     ...(source.preview !== undefined ? { preview: source.preview } : {}),
     ...(source.config ? { config: source.config } : {}),
     ...(source.runningRunId !== undefined ? { runningRunId: source.runningRunId } : {}),
+    ...(source.queuedMessages.length > 0
+      ? {
+          queuedMessages: source.queuedMessages.map((message) => ({
+            ...message,
+            ...(message.attachments
+              ? {
+                  attachments: message.attachments.map((attachment: SessionAttachment) => ({ ...attachment })),
+                }
+              : {}),
+          })),
+        }
+      : {}),
   };
 }
 
