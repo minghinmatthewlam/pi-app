@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile as execFileCallback } from "node:child_process";
+import { execFile as execFileCallback, spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -13,12 +13,22 @@ const repoRoot = path.resolve(scriptDir, "..");
 const desktopDir = path.join(repoRoot, "apps", "desktop");
 
 async function run(command, args, options = {}) {
-  return execFile(command, args, {
-    cwd: options.cwd ?? repoRoot,
-    env: options.env ?? process.env,
-    encoding: "utf8",
-    maxBuffer: 50 * 1024 * 1024,
-  });
+  try {
+    return await execFile(command, args, {
+      cwd: options.cwd ?? repoRoot,
+      env: options.env ?? process.env,
+      encoding: "utf8",
+      maxBuffer: 50 * 1024 * 1024,
+    });
+  } catch (error) {
+    if (error?.stdout) {
+      process.stdout.write(error.stdout);
+    }
+    if (error?.stderr) {
+      process.stderr.write(error.stderr);
+    }
+    throw error;
+  }
 }
 
 async function packageDmg(version, outputDir) {
@@ -63,6 +73,69 @@ async function ensureBrewCommand(args, env) {
   return result;
 }
 
+async function brewRepo(tapName, env) {
+  const { stdout } = await run("brew", ["--repo", tapName], { env });
+  return stdout.trim();
+}
+
+async function verifyExecutableLaunch(executablePath, tempRoot) {
+  const userDataDir = path.join(tempRoot, "launch-user-data");
+  const agentDir = path.join(userDataDir, "agent");
+  await mkdir(agentDir, { recursive: true });
+
+  const child = spawn(executablePath, [], {
+    cwd: path.dirname(executablePath),
+    env: {
+      ...process.env,
+      PI_APP_OPEN_DEVTOOLS: "0",
+      PI_APP_TEST_MODE: "background",
+      PI_APP_USER_DATA_DIR: userDataDir,
+      PI_CODING_AGENT_DIR: agentDir,
+    },
+    stdio: "ignore",
+  });
+
+  const stayedAlive = await new Promise((resolve, reject) => {
+    const launchTimer = setTimeout(() => {
+      cleanup();
+      resolve(true);
+    }, 8_000);
+
+    const cleanup = () => {
+      clearTimeout(launchTimer);
+      child.removeAllListeners("error");
+      child.removeAllListeners("exit");
+    };
+
+    child.once("error", (error) => {
+      cleanup();
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      cleanup();
+      resolve({ code, signal });
+    });
+  });
+
+  if (stayedAlive !== true) {
+    throw new Error(
+      `Upgraded app exited too early: ${JSON.stringify(stayedAlive)}.`,
+    );
+  }
+
+  child.kill("SIGTERM");
+  await new Promise((resolve) => {
+    const forceKillTimer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve(undefined);
+    }, 5_000);
+    child.once("exit", () => {
+      clearTimeout(forceKillTimer);
+      resolve(undefined);
+    });
+  });
+}
+
 async function main() {
   const { values } = parseArgs({
     args: process.argv.slice(2),
@@ -88,7 +161,6 @@ async function main() {
     HOMEBREW_NO_AUTO_UPDATE: "1",
     HOMEBREW_NO_ENV_HINTS: "1",
   };
-  const [, tapRepo] = values["tap-name"].split("/");
   const qualifiedToken = `${values["tap-name"]}/${values["cask-token"]}`;
   const caskPath = resolveCaskPath(tapDir, values["cask-token"]);
   const appBundlePath = path.join(appDir, "pi-gui.app");
@@ -126,12 +198,14 @@ async function main() {
     await ensureBrewCommand(["untap", values["tap-name"]], brewEnv).catch(() => undefined);
     await ensureBrewCommand(["uninstall", "--cask", "--force", values["cask-token"]], brewEnv).catch(() => undefined);
     await ensureBrewCommand(["tap", "--custom-remote", values["tap-name"], tapDir], brewEnv);
+    const tappedRepoDir = await brewRepo(values["tap-name"], brewEnv);
+    const tappedCaskPath = resolveCaskPath(tappedRepoDir, values["cask-token"]);
     await ensureBrewCommand(["install", "--cask", qualifiedToken, "--appdir", appDir], brewEnv);
 
     assert.equal(await plistVersion(appBundlePath), values["version-a"]);
 
     await writeFile(
-      caskPath,
+      tappedCaskPath,
       renderCask({
         assetUrl: pathToFileURL(dmgB).toString(),
         caskToken: values["cask-token"],
@@ -140,23 +214,14 @@ async function main() {
       }),
       "utf8",
     );
-    await run("git", ["add", caskPath], { cwd: tapDir });
-    await run("git", ["commit", "-m", `Upgrade ${values["cask-token"]} to ${values["version-b"]}`], { cwd: tapDir });
+    await run("git", ["add", tappedCaskPath], { cwd: tappedRepoDir });
+    await run("git", ["commit", "-m", `Upgrade ${values["cask-token"]} to ${values["version-b"]}`], {
+      cwd: tappedRepoDir,
+    });
 
     await ensureBrewCommand(["upgrade", "--cask", qualifiedToken, "--appdir", appDir], brewEnv);
     assert.equal(await plistVersion(appBundlePath), values["version-b"]);
-
-    await run(
-      "pnpm",
-      ["--dir", desktopDir, "run", "test:prod:homebrew-upgrade"],
-      {
-        env: {
-          ...process.env,
-          PI_APP_HOME_BREW_EXECUTABLE: executablePath,
-          PI_APP_HOME_BREW_EXPECTED_VERSION: values["version-b"],
-        },
-      },
-    );
+    await verifyExecutableLaunch(executablePath, tempRoot);
 
     process.stdout.write(`Verified Homebrew install and upgrade flow in ${tempRoot}.\n`);
   } finally {

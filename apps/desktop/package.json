@@ -53,7 +53,6 @@
     "test:prod:packaged-smoke": "pnpm run package:dir && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/packaged-smoke.spec.ts",
     "test:prod:notification-settings": "pnpm run package:dir && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/notification-settings-packaged.spec.ts",
     "test:prod:applications-relaunch": "pnpm run package && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/applications-relaunch.spec.ts",
-    "test:prod:homebrew-upgrade": "cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/homebrew-upgrade.spec.ts",
     "test:prod:release-zip-smoke": "pnpm run package && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/release-zip-smoke.spec.ts",
     "test:prod:release-zip-smoke:ci": "cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/release-zip-smoke.spec.ts",
     "test:prod:open-folder-real": "pnpm build && cross-env PI_APP_TEST_MODE=foreground pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/open-folder-real.spec.ts"
