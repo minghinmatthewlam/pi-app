@@ -1,4 +1,14 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  Menu,
+  shell,
+  type MenuItemConstructorOptions,
+  type MessageBoxOptions,
+} from "electron";
 import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -13,7 +23,7 @@ import {
   openSystemNotificationSettings,
   requestNotificationPermission,
 } from "./notification-permission";
-import { initUpdateChecker } from "./update-checker";
+import { checkForUpdate, initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
 import type { DesktopAppState, ThemeMode } from "../src/desktop-state";
 import { desktopIpc, getDesktopCommandFromShortcut } from "../src/ipc";
@@ -47,6 +57,7 @@ let quittingAfterStoreFlush = false;
 const SUPPORTED_IMAGE_TYPES = SUPPORTED_COMPOSER_IMAGE_TYPES;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set<string>(SUPPORTED_IMAGE_TYPES.map((type) => type.mimeType));
 const OPEN_FOLDER_MENU_ITEM_ID = "file.open-folder";
+const CHECK_FOR_UPDATES_MENU_ITEM_ID = "app.check-for-updates";
 const MAX_CLIPBOARD_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_CLIPBOARD_IMAGE_DIMENSION = 8_192;
 
@@ -207,13 +218,71 @@ async function pickWorkspaceViaDialog(): Promise<DesktopAppState> {
   return newThreadState;
 }
 
+async function runManualUpdateCheck(): Promise<void> {
+  const window = mainWindow && canPublishToWindow(mainWindow) ? mainWindow : undefined;
+  const result = await checkForUpdate();
+
+  if (result.status === "update-available") {
+    return;
+  }
+
+  if (result.status === "up-to-date") {
+    const options: MessageBoxOptions = {
+      type: "info",
+      title: "pi-gui",
+      message: `You're up to date on version ${result.currentVersion}.`,
+      buttons: ["OK"],
+    };
+    if (window) {
+      await dialog.showMessageBox(window, options);
+    } else {
+      await dialog.showMessageBox(options);
+    }
+    return;
+  }
+
+  const options: MessageBoxOptions = {
+    type: "warning",
+    title: "pi-gui",
+    message: "Could not check for updates right now.",
+    detail: result.message,
+    buttons: ["OK"],
+  };
+  if (window) {
+    await dialog.showMessageBox(window, options);
+  } else {
+    await dialog.showMessageBox(options);
+  }
+}
+
 function installApplicationMenu(): void {
   if (process.platform !== "darwin") {
     return;
   }
 
   const template: MenuItemConstructorOptions[] = [
-    { role: "appMenu" },
+    {
+      label: app.name,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        {
+          id: CHECK_FOR_UPDATES_MENU_ITEM_ID,
+          label: "Check for Updates…",
+          click: () => {
+            void runManualUpdateCheck();
+          },
+        },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    },
     {
       label: "File",
       submenu: [
