@@ -38,6 +38,7 @@ test("requests notification permission in the packaged app when active work move
     initialWorkspaces: [workspacePath],
     testMode: "background",
     envOverrides: {
+      PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS: "default",
       PI_APP_TEST_NOTIFICATION_PERMISSION_REQUEST_LOG_PATH: requestLogPath,
     },
   });
@@ -45,6 +46,18 @@ test("requests notification permission in the packaged app when active work move
   try {
     const window = await harness.firstWindow();
     await installNotificationRequestSpy(window);
+    await window.evaluate(() => {
+      const NotificationCtor = globalThis.Notification;
+      if (!NotificationCtor) {
+        throw new Error("Notification API is unavailable");
+      }
+
+      Object.defineProperty(NotificationCtor, "permission", {
+        configurable: true,
+        get: () => "granted",
+      });
+    });
+    await expect.poll(() => window.evaluate(() => window.piApp.getNotificationPermissionStatus())).toBe("default");
     const sessionA = await createThread(window, "Packaged Session A");
     await createThread(window, "Packaged Session B");
     await setSessionVisibilityOverride(harness, "active");

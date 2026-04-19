@@ -19,14 +19,26 @@ test("shows notification recovery actions in the packaged app", async () => {
     initialWorkspaces: [workspacePath],
     testMode: "background",
     envOverrides: {
-      PI_APP_TEST_NOTIFICATION_PERMISSION_STATUS: "denied",
       PI_APP_TEST_NOTIFICATION_PERMISSION_REQUEST_RESULT: "granted",
+      PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS: "denied",
       PI_APP_TEST_NOTIFICATION_SETTINGS_LOG_PATH: settingsLogPath,
     },
   });
 
   try {
     const window = await harness.firstWindow();
+    await window.evaluate(() => {
+      const NotificationCtor = globalThis.Notification;
+      if (!NotificationCtor) {
+        throw new Error("Notification API is unavailable");
+      }
+
+      Object.defineProperty(NotificationCtor, "permission", {
+        configurable: true,
+        get: () => "granted",
+      });
+    });
+    await expect.poll(() => window.evaluate(() => window.piApp.getNotificationPermissionStatus())).toBe("denied");
     await window.getByRole("button", { name: "Settings", exact: true }).click();
     await window.getByRole("button", { name: "Notifications", exact: true }).click();
 

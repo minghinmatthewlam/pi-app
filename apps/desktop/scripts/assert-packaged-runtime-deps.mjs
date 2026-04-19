@@ -16,6 +16,15 @@ const requiredPackages = [
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(scriptDir, "..");
 const asarPath = path.join(desktopDir, "release", "mac-arm64", "pi-gui.app", "Contents", "Resources", "app.asar");
+const notificationHelperPath = path.join(
+  desktopDir,
+  "release",
+  "mac-arm64",
+  "pi-gui.app",
+  "Contents",
+  "MacOS",
+  "pi-gui-notification-status-helper",
+);
 const pnpmBinary = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 if (!existsSync(asarPath)) {
@@ -35,6 +44,10 @@ const missingPackages = requiredPackages.filter((packageName) => {
 
 if (missingPackages.length > 0) {
   throw new Error(`Packaged app is missing runtime dependencies: ${missingPackages.join(", ")}`);
+}
+
+if (!existsSync(notificationHelperPath)) {
+  throw new Error(`Packaged app is missing notification helper: ${notificationHelperPath}`);
 }
 
 console.log(`Verified packaged runtime dependencies in ${asarPath}`);

@@ -8,9 +8,10 @@
   "main": "out/main/main.js",
   "scripts": {
     "build:deps": "pnpm --dir ../.. --filter @pi-gui/session-driver --filter @pi-gui/pi-sdk-driver --filter @pi-gui/catalogs run build",
+    "build:notification-helper": "node scripts/build-notification-status-helper.mjs",
     "dev": "node scripts/dev.mjs",
-    "build": "pnpm run build:deps && electron-vite build",
-    "preview": "pnpm run build:deps && electron-vite preview",
+    "build": "pnpm run build:deps && pnpm run build:notification-helper && electron-vite build",
+    "preview": "pnpm run build:deps && pnpm run build:notification-helper && electron-vite preview",
     "start": "pnpm run preview",
     "package": "pnpm run build && electron-builder --mac",
     "package:dir": "pnpm run build && electron-builder --mac --dir",

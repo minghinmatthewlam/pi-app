@@ -11,6 +11,10 @@ files:
   - out/**/*
   - package.json
 
+extraFiles:
+  - from: build/native/pi-gui-notification-status-helper
+    to: MacOS/pi-gui-notification-status-helper
+
 asar: true
 asarUnpack:
   - "**/*.node"
