@@ -91,6 +91,21 @@ pnpm --filter @pi-gui/desktop run test:e2e:ci:mac
 - Picker tests rely on macOS Accessibility/UI scripting. If folder or image picker automation cannot type into the dialog, check system Accessibility permissions first.
 - `production` open-panel coverage also relies on macOS Accessibility/UI scripting and should be run with the app kept frontmost.
 
+## Playwright Vs Computer Use
+
+Prefer the repo lanes first. They are deterministic, scriptable, and the right source of truth for normal development and CI.
+
+- Use `core` when the behavior lives inside the Electron window and should stay background-friendly.
+- Use `live` when you need a real run, transcript item, tool call, queued message, or other runtime-backed behavior.
+- Use `native` or `production` when the surface is a real macOS dialog, picker, clipboard path, installed `.app`, or packaged release artifact.
+
+Use manual Computer Use smoke only as a complement, not a replacement.
+
+- If the local Codex skill `$pi-gui-computer-use-smoke` is installed, use it for believable release-readiness sweeps on the installed app and for focus-hostile macOS surfaces that are awkward or disruptive in Playwright.
+- The reason to use Computer Use is product confidence, not determinism. It is useful when you want to see the real installed app behave correctly while minimizing disruption to the laptop.
+- Keep Playwright as the primary regression signal. Computer Use should not replace lane coverage for `core`, `live`, `native`, or `production`, and it should not become a hidden repo dependency.
+- Treat real open-folder and native file-picker checks in Computer Use as best-effort smoke coverage unless the workflow is explicitly being validated there.
+
 ## Targeted Commands
 
 Use a targeted script while iterating.
