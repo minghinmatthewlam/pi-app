@@ -15,10 +15,6 @@ extraResources:
   - from: resources/icon.png
     to: icon.png
 
-extraFiles:
-  - from: build/native/pi-gui-notification-status-helper
-    to: MacOS/pi-gui-notification-status-helper
-
 asar: true
 asarUnpack:
   - "**/*.node"
@@ -39,6 +35,9 @@ mac:
     - target: zip
       arch: arm64
   darkModeSupport: true
+  extraFiles:
+    - from: build/native/pi-gui-notification-status-helper
+      to: MacOS/pi-gui-notification-status-helper
 
 linux:
   category: Development
