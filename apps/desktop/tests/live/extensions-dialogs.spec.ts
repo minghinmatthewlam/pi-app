@@ -1,5 +1,14 @@
 import { expect, test } from "@playwright/test";
-import { createNamedThread, launchDesktop, makeUserDataDir, makeWorkspace, writeProjectExtension } from "../helpers/electron-app";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  createNamedThread,
+  launchDesktop,
+  makeUserDataDir,
+  makeWorkspace,
+  seedAgentDir,
+  writeProjectExtension,
+} from "../helpers/electron-app";
 
 const extensionSource = String.raw`
 export default function dialogExtension(pi) {
@@ -36,6 +45,67 @@ export default function dialogExtension(pi) {
   });
 }
 `;
+
+const computerUseLikeExtensionSource = String.raw`
+import { Type } from "@mariozechner/pi-ai";
+import { defineTool } from "@mariozechner/pi-coding-agent";
+
+const dragTool = defineTool({
+  name: "drag",
+  label: "Drag",
+  description: "Drag to a screen position",
+  parameters: Type.Object({
+    x: Type.Number(),
+    y: Type.Number(),
+  }),
+  async execute(_toolCallId, params) {
+    return {
+      content: [{ type: "text", text: "drag " + params.x + "," + params.y }],
+    };
+  },
+});
+
+export default function computerUseLikeExtension(pi) {
+  pi.registerTool(dragTool);
+
+  pi.on("session_start", async (_event, ctx) => {
+    await ctx.ui.select("Computer use permissions", ["Open System Settings"]);
+  });
+
+  pi.registerCommand("computer-use-smoke", {
+    description: "Confirm the computer-use extension loaded",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify("Computer use command ready", "info");
+    },
+  });
+}
+`;
+
+async function installComputerUseLikePackage(agentDir: string, packagePath: string): Promise<void> {
+  const extensionDir = join(packagePath, "extensions");
+  await mkdir(extensionDir, { recursive: true });
+  await writeFile(
+    join(packagePath, "package.json"),
+    `${JSON.stringify(
+      {
+        name: "pi-computer-use",
+        type: "module",
+        pi: {
+          extensions: ["./extensions/computer-use.ts"],
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  await writeFile(join(extensionDir, "computer-use.ts"), `${computerUseLikeExtensionSource}\n`, "utf8");
+
+  const settingsPath = join(agentDir, "settings.json");
+  const settings = JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>;
+  settings.packages = [packagePath];
+  await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+}
 
 test("renders extension dialogs in the Electron surface and routes responses back to the session", async () => {
   test.setTimeout(60_000);
@@ -92,6 +162,35 @@ test("renders extension dialogs in the Electron surface and routes responses bac
     await dialog.getByRole("button", { name: "Submit", exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await expect(window.locator(".timeline")).toContainText("Editor lines 2");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("loads a pi-computer-use-like package without blocking session startup", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("computer-use-extension-workspace");
+  const packagePath = await makeWorkspace("pi-computer-use-package");
+  const agentDir = join(userDataDir, "agent");
+  await seedAgentDir(agentDir);
+  await installComputerUseLikePackage(agentDir, packagePath);
+
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Computer use extension session");
+    await expect(window.getByTestId("extension-dialog")).toHaveCount(0);
+
+    const composer = window.getByTestId("composer");
+    await composer.fill("/computer-use-smoke ");
+    await composer.press("Enter");
+    await expect(window.locator(".timeline")).toContainText("Computer use command ready");
   } finally {
     await harness.close();
   }

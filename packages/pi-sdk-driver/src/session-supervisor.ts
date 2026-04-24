@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import {
   ModelRegistry,
   SessionManager,
+  type AgentSessionRuntime,
   type AgentSession,
   type AgentSessionEvent,
   type CreateAgentSessionOptions,
@@ -69,11 +70,11 @@ import {
   workspaceToRef,
 } from "./session-supervisor-utils.js";
 import type { SessionTranscriptMessage } from "./transcript.js";
-import { createAgentSessionWithNpmFallback } from "./npm-package-fallback.js";
+import { createAgentSessionRuntimeWithNpmFallback } from "./npm-package-fallback.js";
 
 export interface PiSdkDriverOptions {
   readonly catalogFilePath?: string;
-  readonly createAgentSessionImpl?: (options?: CreateAgentSessionOptions) => Promise<{ session: AgentSession }>;
+  readonly createAgentSessionRuntimeImpl?: (options?: CreateAgentSessionOptions) => Promise<AgentSessionRuntime>;
   readonly modelRegistry?: ModelRegistry;
   readonly generateThreadTitleOverride?: (
     workspace: WorkspaceRef,
@@ -90,6 +91,7 @@ interface ManagedSessionRecord {
   ref: SessionRef;
   workspace: WorkspaceRef;
   title: string;
+  runtime: AgentSessionRuntime | undefined;
   session: AgentSession | undefined;
   sessionFile: string | undefined;
   status: SessionStatus;
@@ -111,6 +113,7 @@ interface ManagedSessionRecord {
     }
   >;
   extensionUiState: ExtensionUiState;
+  bindingExtensions: boolean;
   sessionCommands: RuntimeCommandRecord[];
 }
 
@@ -141,7 +144,7 @@ interface SkillAdapter {
 
 export class SessionSupervisor {
   private readonly catalogs: SessionFileCatalogStorage;
-  private readonly createAgentSessionImpl: (options?: CreateAgentSessionOptions) => Promise<{ session: AgentSession }>;
+  private readonly createAgentSessionRuntimeImpl: (options?: CreateAgentSessionOptions) => Promise<AgentSessionRuntime>;
   private readonly modelRegistry: ModelRegistry | undefined;
   private readonly records = new Map<string, ManagedSessionRecord>();
 
@@ -149,7 +152,8 @@ export class SessionSupervisor {
     this.catalogs = options.catalogFilePath
       ? new JsonCatalogStore({ catalogFilePath: options.catalogFilePath })
       : new JsonCatalogStore();
-    this.createAgentSessionImpl = options.createAgentSessionImpl ?? ((createOptions) => createAgentSessionWithNpmFallback(createOptions));
+    this.createAgentSessionRuntimeImpl =
+      options.createAgentSessionRuntimeImpl ?? ((createOptions) => createAgentSessionRuntimeWithNpmFallback(createOptions));
     this.modelRegistry = options.modelRegistry;
   }
 
@@ -221,7 +225,7 @@ export class SessionSupervisor {
       record.unsubscribeAgent?.();
       record.unsubscribeAgent = undefined;
       record.listeners.clear();
-      record.session?.dispose();
+      await this.disposeRecordRuntime(record);
       this.records.delete(key);
     }
 
@@ -261,7 +265,7 @@ export class SessionSupervisor {
       record.unsubscribeAgent?.();
       record.unsubscribeAgent = undefined;
       record.listeners.clear();
-      record.session?.dispose();
+      await this.disposeRecordRuntime(record);
       this.records.delete(key);
     }
   }
@@ -305,9 +309,10 @@ export class SessionSupervisor {
       createOptions.thinkingLevel = options.initialThinkingLevel as NonNullable<CreateAgentSessionOptions["thinkingLevel"]>;
     }
 
-    const { session } = await this.createAgentSessionImpl(createOptions);
+    const runtime = await this.createAgentSessionRuntimeImpl(createOptions);
+    const session = runtime.session;
 
-    const record = this.createRecord(workspace, session, options?.title ?? deriveWorkspaceTitle(workspace));
+    const record = this.createRecord(workspace, runtime, options?.title ?? deriveWorkspaceTitle(workspace));
     session.sessionManager.appendSessionInfo(record.title);
     forcePersistSession(session.sessionManager);
     record.config = deriveSessionConfig(session.sessionManager);
@@ -467,9 +472,9 @@ export class SessionSupervisor {
     }
 
     const model = this.resolveModel(selection.provider, selection.modelId);
-    const apiKey = await session.modelRegistry.getApiKey(model);
-    if (!apiKey) {
-      throw new Error(`No API key for ${model.provider}/${model.id}`);
+    const auth = await session.modelRegistry.getApiKeyAndHeaders(model);
+    if (!auth.ok) {
+      throw new Error(auth.error);
     }
 
     const previousModel = session.model;
@@ -477,7 +482,7 @@ export class SessionSupervisor {
       ? session.thinkingLevel
       : (session.settingsManager.getDefaultThinkingLevel() ?? DEFAULT_SESSION_THINKING_LEVEL);
 
-    session.agent.setModel(model);
+    session.agent.state.model = model;
     session.sessionManager.appendModelChange(model.provider, model.id);
     this.applySessionThinkingLevel(session, previousThinkingLevel);
     await this.emitModelSelection(session, model, previousModel);
@@ -582,7 +587,9 @@ export class SessionSupervisor {
     this.replayExtensionUiState(record, listener);
 
     return () => {
-      record.listeners.delete(listener);
+      for (const currentRecord of this.records.values()) {
+        currentRecord.listeners.delete(listener);
+      }
     };
   }
 
@@ -606,8 +613,7 @@ export class SessionSupervisor {
       }
       record.unsubscribeAgent?.();
       record.unsubscribeAgent = undefined;
-      record.session.dispose();
-      record.session = undefined;
+      await this.disposeRecordRuntime(record);
     }
 
     await this.persistSnapshot(record);
@@ -642,13 +648,15 @@ export class SessionSupervisor {
       throw new Error(`Session ${key} cannot be reopened because no session file is tracked.`);
     }
 
-    const { session } = await this.createAgentSessionImpl({
+    const runtime = await this.createAgentSessionRuntimeImpl({
       cwd: workspace.path,
       sessionManager: SessionManager.open(sessionFile),
       ...(this.modelRegistry ? { modelRegistry: this.modelRegistry } : {}),
     });
+    const session = runtime.session;
 
-    const record = existing ?? this.createRecord(workspaceToRef(workspace), session, sessionEntry.title);
+    const record = existing ?? this.createRecord(workspaceToRef(workspace), runtime, sessionEntry.title);
+    record.runtime = runtime;
     record.session = session;
     record.sessionFile = sessionFile;
     record.title = sessionEntry.title;
@@ -659,17 +667,13 @@ export class SessionSupervisor {
     record.config = deriveSessionConfig(session.sessionManager);
     record.closed = false;
 
-    record.unsubscribeAgent?.();
-    record.unsubscribeAgent = session.subscribe((event) => {
-      void this.handleAgentEvent(record, event);
-    });
-
     this.records.set(key, record);
     await this.bindSessionRuntime(record);
     return record;
   }
 
-  private createRecord(workspace: WorkspaceRef, session: AgentSession, title: string): ManagedSessionRecord {
+  private createRecord(workspace: WorkspaceRef, runtime: AgentSessionRuntime, title: string): ManagedSessionRecord {
+    const session = runtime.session;
     const ref = {
       workspaceId: workspace.workspaceId,
       sessionId: session.sessionId,
@@ -679,6 +683,7 @@ export class SessionSupervisor {
       ref,
       workspace: { ...workspace },
       title,
+      runtime,
       session,
       sessionFile: session.sessionFile ?? session.sessionManager.getSessionFile(),
       status: "idle",
@@ -694,12 +699,9 @@ export class SessionSupervisor {
       unsubscribeAgent: undefined,
       pendingHostUiRequests: new Map(),
       extensionUiState: createEmptyExtensionUiState(),
+      bindingExtensions: false,
       sessionCommands: [],
     };
-
-    record.unsubscribeAgent = session.subscribe((event) => {
-      void this.handleAgentEvent(record, event);
-    });
     return record;
   }
 
@@ -718,37 +720,100 @@ export class SessionSupervisor {
     return record.session;
   }
 
-  private async bindSessionRuntime(record: ManagedSessionRecord): Promise<void> {
-    const session = this.requireSession(record);
-    await session.bindExtensions({
-      uiContext: this.createExtensionUiContext(record),
-      commandContextActions: this.createCommandContextActions(record),
-      onError: (error) => {
-        const unsupportedIssue = parseUnsupportedHostUiErrorMessage(error.error);
-        if (unsupportedIssue) {
-          this.emitExtensionCompatibilityIssue(record, {
-            ...unsupportedIssue,
-            ...(error.extensionPath ? { extensionPath: error.extensionPath } : {}),
-            ...(error.event ? { eventName: error.event } : {}),
-          });
-          return;
+  private requireRuntime(record: ManagedSessionRecord): AgentSessionRuntime {
+    if (!record.runtime) {
+      throw new Error(`Session ${sessionKey(record.ref)} runtime is not active.`);
+    }
+    return record.runtime;
+  }
+
+  private async disposeRecordRuntime(record: ManagedSessionRecord): Promise<void> {
+    const runtime = record.runtime;
+    const session = record.session;
+    record.runtime = undefined;
+    record.session = undefined;
+    record.sessionCommands = [];
+    if (runtime) {
+      await runtime.dispose();
+      return;
+    }
+    session?.dispose();
+  }
+
+  private async rebindRuntimeSession(record: ManagedSessionRecord, session: AgentSession): Promise<void> {
+    const previousKey = sessionKey(record.ref);
+    const nextRef = {
+      workspaceId: record.workspace.workspaceId,
+      sessionId: session.sessionId,
+    } satisfies SessionRef;
+    const nextKey = sessionKey(nextRef);
+
+    if (previousKey !== nextKey) {
+      const existingTarget = this.records.get(nextKey);
+      if (existingTarget && existingTarget !== record) {
+        for (const listener of existingTarget.listeners) {
+          record.listeners.add(listener);
         }
-        void this.emitExtensionError(record, error.extensionPath, error.event, error.error);
-      },
+        existingTarget.unsubscribeAgent?.();
+        existingTarget.unsubscribeAgent = undefined;
+        this.cancelPendingHostUiRequests(existingTarget);
+        await this.disposeRecordRuntime(existingTarget);
+      }
+      this.records.delete(previousKey);
+      record.ref = nextRef;
+      this.records.set(nextKey, record);
+    }
+
+    record.session = session;
+    record.sessionFile = session.sessionFile ?? session.sessionManager.getSessionFile();
+    record.unsubscribeAgent?.();
+    record.unsubscribeAgent = session.subscribe((event) => {
+      void this.handleAgentEvent(record, event);
     });
+    record.bindingExtensions = true;
+    try {
+      await session.bindExtensions({
+        uiContext: this.createExtensionUiContext(record),
+        commandContextActions: this.createCommandContextActions(record),
+        onError: (error) => {
+          const unsupportedIssue = parseUnsupportedHostUiErrorMessage(error.error);
+          if (unsupportedIssue) {
+            this.emitExtensionCompatibilityIssue(record, {
+              ...unsupportedIssue,
+              ...(error.extensionPath ? { extensionPath: error.extensionPath } : {}),
+              ...(error.event ? { eventName: error.event } : {}),
+            });
+            return;
+          }
+          void this.emitExtensionError(record, error.extensionPath, error.event, error.error);
+        },
+      });
+    } finally {
+      record.bindingExtensions = false;
+    }
     record.sessionCommands = this.collectSessionCommands(session);
+  }
+
+  private async bindSessionRuntime(record: ManagedSessionRecord): Promise<void> {
+    const runtime = this.requireRuntime(record);
+    runtime.setRebindSession(async (session) => {
+      this.clearExtensionUiState(record);
+      this.cancelPendingHostUiRequests(record);
+      await this.rebindRuntimeSession(record, session);
+    });
+    await this.rebindRuntimeSession(record, runtime.session);
   }
 
   private createCommandContextActions(record: ManagedSessionRecord): ExtensionCommandContextActions {
     return {
       waitForIdle: () => this.requireSession(record).agent.waitForIdle(),
       newSession: async (options) => {
-        const cancelled = !(await this.requireSession(record).newSession(options));
+        const { cancelled } = await this.requireRuntime(record).newSession(options);
         await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
         return { cancelled };
       },
-      fork: async (entryId) => {
-        const result = await this.requireSession(record).fork(entryId);
+      fork: async (entryId, options) => {
+        const result = await this.requireRuntime(record).fork(entryId, options);
         await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
         return { cancelled: result.cancelled };
       },
@@ -757,8 +822,8 @@ export class SessionSupervisor {
         await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
         return { cancelled: result.cancelled };
       },
-      switchSession: async (sessionPath) => {
-        const cancelled = !(await this.requireSession(record).switchSession(sessionPath));
+      switchSession: async (sessionPath, options) => {
+        const { cancelled } = await this.requireRuntime(record).switchSession(sessionPath, options);
         await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
         return { cancelled };
       },
@@ -782,6 +847,9 @@ export class SessionSupervisor {
       if (opts?.signal?.aborted) {
         return Promise.resolve(defaultValue);
       }
+      if (record.bindingExtensions && opts?.timeout === undefined) {
+        return Promise.resolve(defaultValue);
+      }
 
       const requestId = crypto.randomUUID();
       return new Promise((resolve, reject) => {
@@ -802,11 +870,12 @@ export class SessionSupervisor {
 
         opts?.signal?.addEventListener("abort", onAbort, { once: true });
 
-        if (opts?.timeout) {
+        const timeoutMs = opts?.timeout;
+        if (timeoutMs !== undefined) {
           timeoutId = setTimeout(() => {
             cleanup();
             resolve(defaultValue);
-          }, opts.timeout);
+          }, timeoutMs);
         }
 
         record.pendingHostUiRequests.set(requestId, {
@@ -880,6 +949,8 @@ export class SessionSupervisor {
         });
       },
       setWorkingMessage: () => {},
+      setWorkingIndicator: () => {},
+      setHiddenThinkingLabel: () => {},
       setWidget: (key, content: unknown, options?: ExtensionWidgetOptions) => {
         if (content === undefined || Array.isArray(content)) {
           const lines = content as readonly string[] | undefined;
@@ -936,6 +1007,7 @@ export class SessionSupervisor {
           (response) => ("cancelled" in response && response.cancelled ? undefined : "value" in response ? response.value : undefined),
         ),
       setEditorComponent: () => {},
+      addAutocompleteProvider: () => {},
       get theme() {
         return noOpTheme;
       },
@@ -984,15 +1056,13 @@ export class SessionSupervisor {
 
   private applySessionThinkingLevel(session: AgentSession, thinkingLevel: string): void {
     const availableLevels = session.getAvailableThinkingLevels();
-    const effectiveLevel = clampThinkingLevel(thinkingLevel, availableLevels) as Parameters<
-      AgentSession["agent"]["setThinkingLevel"]
-    >[0];
+    const effectiveLevel = clampThinkingLevel(thinkingLevel, availableLevels) as AgentSession["thinkingLevel"];
     if (effectiveLevel !== session.agent.state.thinkingLevel) {
-      session.agent.setThinkingLevel(effectiveLevel);
+      session.agent.state.thinkingLevel = effectiveLevel;
       session.sessionManager.appendThinkingLevelChange(effectiveLevel);
       return;
     }
-    session.agent.setThinkingLevel(effectiveLevel);
+    session.agent.state.thinkingLevel = effectiveLevel;
   }
 
   private async emitModelSelection(
@@ -1492,19 +1562,13 @@ function clampThinkingLevel(level: string, availableLevels: readonly string[]): 
   }
   for (let index = requestedIndex; index < THINKING_LEVEL_ORDER.length; index += 1) {
     const candidate = THINKING_LEVEL_ORDER[index];
-    if (!candidate) {
-      continue;
-    }
-    if (available.has(candidate)) {
+    if (candidate && available.has(candidate)) {
       return candidate;
     }
   }
   for (let index = requestedIndex - 1; index >= 0; index -= 1) {
     const candidate = THINKING_LEVEL_ORDER[index];
-    if (!candidate) {
-      continue;
-    }
-    if (available.has(candidate)) {
+    if (candidate && available.has(candidate)) {
       return candidate;
     }
   }

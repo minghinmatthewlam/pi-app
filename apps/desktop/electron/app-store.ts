@@ -757,7 +757,9 @@ export class DesktopAppStore implements AppStoreInternals {
         composerDraft: persisted.composerDraft,
         clearLastError: true,
         refreshWorktrees: true,
+        hydrateSelectedSession: false,
       });
+      this.startSelectedSessionHydration(this.selectedSessionRef());
     } catch (error) {
       this.state = {
         ...createEmptyDesktopAppState(),
@@ -822,7 +824,7 @@ export class DesktopAppStore implements AppStoreInternals {
         sessionsSnapshot.sessions,
       );
 
-      if (selectedWorkspaceId && selectedSessionId) {
+      if (selectedWorkspaceId && selectedSessionId && options.hydrateSelectedSession !== false) {
         const sessionRef = {
           workspaceId: selectedWorkspaceId,
           sessionId: selectedSessionId,
@@ -1050,12 +1052,18 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   private migrateSessionSubscriptionKey(sourceKey: string, targetKey: string): void {
-    if (sourceKey === targetKey || this.sessionState.sessionSubscriptions.has(targetKey)) {
+    if (sourceKey === targetKey) {
       return;
     }
 
     const unsubscribe = this.sessionState.sessionSubscriptions.get(sourceKey);
     if (!unsubscribe) {
+      return;
+    }
+
+    if (this.sessionState.sessionSubscriptions.has(targetKey)) {
+      unsubscribe();
+      this.sessionState.sessionSubscriptions.delete(sourceKey);
       return;
     }
 
@@ -1279,6 +1287,8 @@ export class DesktopAppStore implements AppStoreInternals {
       this.migrateSessionSubscriptionKey(subscriptionKey, key);
     }
     const knownSession = this.sessionFromState(event.sessionRef);
+    const shouldFollowSessionMutation = subscriptionKey !== key && this.currentSelectedSessionKey() === subscriptionKey;
+    let refreshedFollowedSession = false;
     if (
       !knownSession &&
       (event.type === "sessionOpened" ||
@@ -1287,7 +1297,6 @@ export class DesktopAppStore implements AppStoreInternals {
         event.type === "hostUiRequest")
     ) {
       if (this.refreshStateDepth === 0) {
-        const shouldFollowSessionMutation = subscriptionKey !== key && this.currentSelectedSessionKey() === subscriptionKey;
         await this.refreshState({
           selectedWorkspaceId:
             this.state.selectedWorkspaceId === event.sessionRef.workspaceId
@@ -1296,6 +1305,7 @@ export class DesktopAppStore implements AppStoreInternals {
           selectedSessionId: shouldFollowSessionMutation ? event.sessionRef.sessionId : this.state.selectedSessionId,
           clearLastError: true,
         });
+        refreshedFollowedSession = shouldFollowSessionMutation;
       }
     }
 
@@ -1372,6 +1382,12 @@ export class DesktopAppStore implements AppStoreInternals {
     );
     this.markSessionViewedIfActivelyViewed(event.sessionRef);
     this.state = this.syncDerivedSessionState(this.state, event.sessionRef);
+    if (shouldFollowSessionMutation && event.type !== "sessionClosed") {
+      this.applyFastSessionSelection(event.sessionRef);
+      if (!refreshedFollowedSession) {
+        this.startSelectedSessionHydration(event.sessionRef);
+      }
+    }
     if (event.type !== "hostUiRequest") {
       this.persistTranscriptCacheForSession(event.sessionRef);
     }
@@ -1784,6 +1800,15 @@ export class DesktopAppStore implements AppStoreInternals {
     this.publishSelectedTranscript();
   }
 
+  handleWindowActivation(): void {
+    if (!this.markSelectedSessionViewedIfVisible()) {
+      return;
+    }
+
+    this.schedulePersistUiState();
+    this.emit();
+  }
+
   private async emitSessionEvent(event: SessionDriverEvent, snapshot: DesktopAppState): Promise<void> {
     for (const listener of this.sessionEventListeners) {
       await listener(event, snapshot);
@@ -1860,6 +1885,17 @@ export class DesktopAppStore implements AppStoreInternals {
     this.publishSelectedTranscriptFor(sessionRef);
   }
 
+  private startSelectedSessionHydration(sessionRef: SessionRef | undefined): void {
+    if (!sessionRef) {
+      return;
+    }
+
+    const selectionEpoch = ++this.selectionEpoch;
+    void this.hydrateSelectedSessionAfterSelection(sessionRef, selectionEpoch).catch((error: unknown) => {
+      void this.handleSelectedSessionHydrationError(sessionRef, selectionEpoch, error);
+    });
+  }
+
   private async handleSelectedSessionHydrationError(
     sessionRef: SessionRef,
     selectionEpoch: number,
@@ -1883,9 +1919,9 @@ export class DesktopAppStore implements AppStoreInternals {
     );
   }
 
-  private markSelectedSessionViewedIfVisible(): void {
+  private markSelectedSessionViewedIfVisible(): boolean {
     if (this.state.activeView !== "threads" || !this.state.selectedWorkspaceId || !this.state.selectedSessionId) {
-      return;
+      return false;
     }
 
     const sessionRef = {
@@ -1893,10 +1929,10 @@ export class DesktopAppStore implements AppStoreInternals {
       sessionId: this.state.selectedSessionId,
     } satisfies SessionRef;
     if (!isSessionActivelyViewed(this.state, sessionRef, this.getWindow())) {
-      return;
+      return false;
     }
 
-    this.markSessionViewed(sessionRef);
+    return this.markSessionViewed(sessionRef);
   }
 
   private markSessionViewedIfActivelyViewed(sessionRef: SessionRef): boolean {

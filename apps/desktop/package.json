@@ -65,7 +65,7 @@
     "test:prod:open-folder-real": "pnpm build && cross-env PI_APP_TEST_MODE=foreground pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/open-folder-real.spec.ts"
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.62.0",
+    "@mariozechner/pi-coding-agent": "^0.69.0",
     "@pi-gui/pi-sdk-driver": "workspace:*",
     "@pi-gui/session-driver": "workspace:*",
     "balanced-match": "^4.0.2",

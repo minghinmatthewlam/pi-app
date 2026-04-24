@@ -11,7 +11,7 @@ export interface RuntimeDependencies {
 export function createRuntimeDependencies(options: RuntimeSupervisorOptions = {}): RuntimeDependencies {
   const agentDir = resolve(options.agentDir ?? getAgentDir());
   const authStorage = options.authStorage ?? AuthStorage.create(join(agentDir, "auth.json"));
-  const modelRegistry = options.modelRegistry ?? new ModelRegistry(authStorage, join(agentDir, "models.json"));
+  const modelRegistry = options.modelRegistry ?? ModelRegistry.create(authStorage, join(agentDir, "models.json"));
   return {
     agentDir,
     authStorage,

@@ -68,13 +68,16 @@ export default function newSessionExtension(pi) {
     description: "Create a child session with a draft",
     handler: async (_args, ctx) => {
       const parentSession = ctx.sessionManager.getSessionFile();
-      const result = await ctx.newSession(parentSession ? { parentSession } : undefined);
+      const result = await ctx.newSession({
+        ...(parentSession ? { parentSession } : {}),
+        withSession: async (nextCtx) => {
+          nextCtx.ui.setEditorText("Child draft");
+        },
+      });
       if (result.cancelled) {
         ctx.ui.notify("Child session cancelled", "info");
         return;
       }
-      ctx.ui.setEditorText("Child draft");
-      ctx.ui.notify("Child session ready", "info");
     },
   });
 }
@@ -315,7 +318,6 @@ test("keeps a single subscription path when an extension creates a child session
       })
       .not.toBe(beforeSelectedSessionId);
     await expect(composer).toHaveValue("Child draft");
-    await expect(window.locator(".timeline")).toContainText("Child session ready");
     await expect(window.getByText("Resumed session", { exact: true })).toHaveCount(resumedCountBefore);
   } finally {
     await harness.close();
