@@ -88,4 +88,5 @@ export interface RefreshStateOptions {
   readonly refreshWorktrees?: boolean;
   readonly activeView?: AppView;
   readonly markSelectedSessionViewed?: boolean;
+  readonly hydrateSelectedSession?: boolean;
 }

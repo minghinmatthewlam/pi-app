@@ -213,7 +213,7 @@ test("switches threads promptly while sessions are already running", async () =>
     const promptB =
       "Use your bash tool and run `python - <<'PY'\nimport time\nprint(\"B start\")\ntime.sleep(12)\nprint(\"B done\")\nPY` then reply with exactly `B complete`.";
 
-    await selectSession(window, "Session A");
+    await selectSessionByTitle(window, "Session A");
     await window.getByTestId("composer").fill(promptA);
     await window.getByTestId("composer").press("Enter");
     await expect
@@ -223,7 +223,7 @@ test("switches threads promptly while sessions are already running", async () =>
       }, { timeout: 30_000 })
       .toBe("running");
 
-    await selectSession(window, "Session B");
+    await selectSessionByTitle(window, "Session B");
     await window.getByTestId("composer").fill(promptB);
     await window.getByTestId("composer").press("Enter");
     await expect

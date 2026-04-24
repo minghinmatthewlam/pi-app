@@ -5,6 +5,3 @@ packages:
 
 onlyBuiltDependencies:
   - electron
-
-patchedDependencies:
-  '@mariozechner/pi-ai@0.62.0': patches/@mariozechner__pi-ai@0.62.0.patch

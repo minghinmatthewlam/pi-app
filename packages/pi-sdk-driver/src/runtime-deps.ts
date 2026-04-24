@@ -14,7 +14,7 @@ export function createRuntimeDependencies(options: RuntimeSupervisorOptions = {}
   const agentDir = resolve(options.agentDir ?? getAgentDir());
   const modelsJsonPath = join(agentDir, "models.json");
   const authStorage = options.authStorage ?? AuthStorage.create(join(agentDir, "auth.json"));
-  const modelRegistry = options.modelRegistry ?? new ModelRegistry(authStorage, modelsJsonPath);
+  const modelRegistry = options.modelRegistry ?? ModelRegistry.create(authStorage, modelsJsonPath);
   const customProviderStore = options.customProviderStore ?? new CustomProviderStore(modelsJsonPath);
   return {
     agentDir,

@@ -59,6 +59,7 @@ let notificationManager: NotificationManager | undefined;
 let notificationPermissionService: NotificationPermissionService | undefined;
 let stopPublishingState: (() => void) | undefined;
 let stopPublishingSelectedTranscript: (() => void) | undefined;
+let stopTrackingWindowActivation: (() => void) | undefined;
 let stopNotifications: (() => void) | undefined;
 let stopUpdateChecker: (() => void) | undefined;
 let quittingAfterStoreFlush = false;
@@ -210,8 +211,36 @@ function attachStatePublisher(window: BrowserWindow): void {
   });
 }
 
+function attachViewedSessionTracking(window: BrowserWindow): void {
+  stopTrackingWindowActivation?.();
+
+  const handleActivation = () => {
+    store.handleWindowActivation();
+  };
+  const clearTracking = () => {
+    stopTrackingWindowActivation?.();
+    stopTrackingWindowActivation = undefined;
+  };
+
+  window.on("focus", handleActivation);
+  window.on("show", handleActivation);
+  window.on("restore", handleActivation);
+  window.once("closed", clearTracking);
+
+  stopTrackingWindowActivation = () => {
+    window.off("focus", handleActivation);
+    window.off("show", handleActivation);
+    window.off("restore", handleActivation);
+    window.off("closed", clearTracking);
+  };
+}
+
 function canPublishToWindow(window: BrowserWindow): boolean {
   return !window.isDestroyed() && !window.webContents.isDestroyed() && !window.webContents.isCrashed();
+}
+
+function resolveWindowTestMode(): "foreground" | "background" {
+  return process.env.PI_APP_TEST_MODE?.trim().toLowerCase() === "background" ? "background" : "foreground";
 }
 
 async function pickWorkspaceViaDialog(): Promise<DesktopAppState> {
@@ -330,7 +359,30 @@ function installApplicationMenu(): void {
 
 app.setName("pi");
 
+const configuredUserDataDir = process.env.PI_APP_USER_DATA_DIR?.trim() || app.getPath("userData");
+app.setPath("userData", configuredUserDataDir);
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+}
+
+app.on("second-instance", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+});
+
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) {
+    return;
+  }
+
   // On macOS, packaged builds already render the dock icon from `icon.icns`
   // in the app bundle. In dev we override the generic Electron dock icon with
   // the real PNG so the running app looks right end-to-end.
@@ -338,7 +390,6 @@ app.whenReady().then(async () => {
     app.dock?.setIcon(appIcon);
   }
 
-  const userDataDir = process.env.PI_APP_USER_DATA_DIR?.trim() || app.getPath("userData");
   let generateThreadTitleOverride:
     | ((workspace: WorkspaceRef, options: GenerateThreadTitleOptions) => Promise<string | null | undefined>)
     | undefined;
@@ -349,7 +400,7 @@ app.whenReady().then(async () => {
       }
     | undefined;
   store = new DesktopAppStore({
-    userDataDir,
+    userDataDir: configuredUserDataDir,
     initialWorkspacePaths: resolveInitialWorkspacePaths(),
     getWindow: () => mainWindow,
     generateThreadTitleOverride: async (workspace, options) => generateThreadTitleOverride?.(workspace, options),
@@ -625,6 +676,7 @@ app.whenReady().then(async () => {
   notificationPermissionService.trackWindow(mainWindow);
   themeManager.setWindow(mainWindow);
   attachStatePublisher(mainWindow);
+  attachViewedSessionTracking(mainWindow);
   void notificationPermissionService.getCurrentStatus();
 
   app.on("activate", () => {
@@ -634,6 +686,7 @@ app.whenReady().then(async () => {
       notificationPermissionService?.trackWindow(mainWindow);
       themeManager.setWindow(mainWindow);
       attachStatePublisher(mainWindow);
+      attachViewedSessionTracking(mainWindow);
       void notificationPermissionService?.getCurrentStatus();
     }
   });
@@ -684,10 +737,6 @@ function resolveInitialWorkspacePaths(): readonly string[] {
   }
 
   return [];
-}
-
-function resolveWindowTestMode(): "foreground" | "background" {
-  return process.env.PI_APP_TEST_MODE?.trim().toLowerCase() === "background" ? "background" : "foreground";
 }
 
 async function readComposerAttachment(filePath: string): Promise<ComposerAttachment> {

@@ -1,4 +1,14 @@
-import { DefaultResourceLoader, SettingsManager, createAgentSession, getAgentDir, type CreateAgentSessionOptions } from "@mariozechner/pi-coding-agent";
+import {
+  SessionManager,
+  SettingsManager,
+  createAgentSessionFromServices,
+  createAgentSessionRuntime,
+  createAgentSessionServices,
+  getAgentDir,
+  type AgentSessionRuntime,
+  type CreateAgentSessionOptions,
+  type CreateAgentSessionRuntimeResult,
+} from "@mariozechner/pi-coding-agent";
 
 export function isGlobalNpmLookupError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -30,16 +40,24 @@ export function createSettingsManagerWithoutNpmPackages(current: SettingsManager
   });
 }
 
-export async function createAgentSessionWithNpmFallback(options?: CreateAgentSessionOptions) {
+async function createAgentSessionServicesWithNpmFallback(
+  cwd: string,
+  agentDir: string,
+  options?: Pick<CreateAgentSessionOptions, "authStorage" | "settingsManager" | "modelRegistry">,
+) {
   try {
-    return await createAgentSession(options);
+    return await createAgentSessionServices({
+      cwd,
+      agentDir,
+      ...(options?.authStorage ? { authStorage: options.authStorage } : {}),
+      ...(options?.settingsManager ? { settingsManager: options.settingsManager } : {}),
+      ...(options?.modelRegistry ? { modelRegistry: options.modelRegistry } : {}),
+    });
   } catch (error) {
     if (!isGlobalNpmLookupError(error)) {
       throw error;
     }
 
-    const cwd = options?.cwd ?? process.cwd();
-    const agentDir = options?.agentDir ?? getAgentDir();
     const currentSettingsManager = options?.settingsManager ?? SettingsManager.create(cwd, agentDir);
     const fallbackSettingsManager = createSettingsManagerWithoutNpmPackages(currentSettingsManager);
     if (!fallbackSettingsManager) {
@@ -52,20 +70,83 @@ export async function createAgentSessionWithNpmFallback(options?: CreateAgentSes
       }`,
     );
 
-    const resourceLoader = new DefaultResourceLoader({
+    return createAgentSessionServices({
       cwd,
       agentDir,
+      ...(options?.authStorage ? { authStorage: options.authStorage } : {}),
       settingsManager: fallbackSettingsManager,
-    });
-    await resourceLoader.reload();
-
-    return createAgentSession({
-      ...options,
-      agentDir,
-      settingsManager: fallbackSettingsManager,
-      resourceLoader,
+      ...(options?.modelRegistry ? { modelRegistry: options.modelRegistry } : {}),
     });
   }
+}
+
+async function createAgentSessionResultWithNpmFallback(
+  cwd: string,
+  agentDir: string,
+  sessionManager: SessionManager,
+  options?: CreateAgentSessionOptions,
+): Promise<CreateAgentSessionRuntimeResult> {
+  const services = await createAgentSessionServicesWithNpmFallback(cwd, agentDir, options);
+  return {
+    ...(await createAgentSessionFromServices({
+      services,
+      sessionManager,
+      ...(options?.sessionStartEvent ? { sessionStartEvent: options.sessionStartEvent } : {}),
+      ...(options?.model ? { model: options.model } : {}),
+      ...(options?.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
+      ...(options?.scopedModels ? { scopedModels: options.scopedModels } : {}),
+      ...(options?.tools ? { tools: options.tools } : {}),
+      ...(options?.customTools ? { customTools: options.customTools } : {}),
+    })),
+    services,
+    diagnostics: services.diagnostics,
+  };
+}
+
+export async function createAgentSessionWithNpmFallback(options?: CreateAgentSessionOptions) {
+  const cwd = options?.cwd ?? process.cwd();
+  const agentDir = options?.agentDir ?? getAgentDir();
+  const sessionManager = options?.sessionManager ?? SessionManager.create(cwd);
+  return createAgentSessionResultWithNpmFallback(cwd, agentDir, sessionManager, options);
+}
+
+export async function createAgentSessionRuntimeWithNpmFallback(
+  options?: CreateAgentSessionOptions,
+): Promise<AgentSessionRuntime> {
+  const cwd = options?.cwd ?? process.cwd();
+  const agentDir = options?.agentDir ?? getAgentDir();
+  const initialSessionManager = options?.sessionManager ?? SessionManager.create(cwd);
+  const {
+    cwd: _optionCwd,
+    agentDir: _optionAgentDir,
+    sessionManager: _optionSessionManager,
+    sessionStartEvent: _optionSessionStartEvent,
+    model: initialModel,
+    thinkingLevel: initialThinkingLevel,
+    ...stableOptions
+  } = options ?? {};
+  let useInitialSessionOptions = true;
+  return createAgentSessionRuntime(
+    ({ cwd: runtimeCwd, agentDir: runtimeAgentDir, sessionManager, sessionStartEvent }) => {
+      const includeInitialSessionOptions = useInitialSessionOptions;
+      useInitialSessionOptions = false;
+      return createAgentSessionResultWithNpmFallback(runtimeCwd, runtimeAgentDir, sessionManager, {
+        ...stableOptions,
+        cwd: runtimeCwd,
+        agentDir: runtimeAgentDir,
+        sessionManager,
+        ...(sessionStartEvent ? { sessionStartEvent } : {}),
+        ...(includeInitialSessionOptions && initialModel ? { model: initialModel } : {}),
+        ...(includeInitialSessionOptions && initialThinkingLevel ? { thinkingLevel: initialThinkingLevel } : {}),
+      });
+    },
+    {
+      cwd,
+      agentDir,
+      sessionManager: initialSessionManager,
+      ...(options?.sessionStartEvent ? { sessionStartEvent: options.sessionStartEvent } : {}),
+    },
+  );
 }
 
 function filterOutNpmPackageSources(value: unknown): unknown {
