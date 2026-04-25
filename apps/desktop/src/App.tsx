@@ -1854,16 +1854,7 @@ export default function App() {
   return (
     <div className="shell">
       <Sidebar
-        activeView={snapshot.activeView}
-        selectedWorkspace={selectedWorkspace}
-        selectedSession={selectedSession}
-        visibleWorkspaces={visibleWorkspaces}
-        threadGroups={threadGroups}
-        linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
         wsMenu={wsMenu}
-        api={api}
-        setSnapshot={setSnapshot}
-        updateSnapshot={updateSnapshot}
         onNewThread={() => openNewThreadSurface(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id)}
         onSetActiveView={setActiveView}
         onOpenSkills={openSkills}
@@ -1876,18 +1867,7 @@ export default function App() {
 
       <main className={`main ${showDiffPanel ? "main--with-diff" : ""}`}>
         <Topbar
-          activeView={snapshot.activeView}
-          rootWorkspace={rootWorkspace}
-          selectedWorkspace={selectedWorkspace}
-          selectedSession={selectedSession}
-          selectedSessionTitle={displayedSessionTitle || selectedSession?.title}
-          selectedWorktree={selectedWorktree}
-          activeWorktrees={activeWorktrees}
-          workspaces={snapshot.workspaces}
           wsMenu={wsMenu}
-          api={api}
-          setSnapshot={setSnapshot}
-          updateSnapshot={updateSnapshot}
           showDiffPanel={showDiffPanel}
           onToggleDiffPanel={toggleDiffPanel}
         />

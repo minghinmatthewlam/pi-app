@@ -1,59 +1,69 @@
-import type { MouseEvent as ReactMouseEvent, Dispatch, SetStateAction } from "react";
-import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
+import { useMemo, type MouseEvent as ReactMouseEvent } from "react";
+import { getSelectedSession, getSelectedWorkspace, type AppView, type WorktreeRecord } from "./desktop-state";
 import { DiffIcon, FolderIcon } from "./icons";
-import type { PiDesktopApi } from "./ipc";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
+import { useAppDispatch, useAppSnapshot, shallowEqualArray } from "./store";
+import { resolveRepoWorkspaceId } from "./workspace-roots";
 
 interface TopbarProps {
-  readonly activeView: AppView;
-  readonly rootWorkspace: WorkspaceRecord | undefined;
-  readonly selectedWorkspace: WorkspaceRecord | undefined;
-  readonly selectedSession: SessionRecord | undefined;
-  readonly selectedSessionTitle: string | undefined;
-  readonly selectedWorktree: WorktreeRecord | undefined;
-  readonly activeWorktrees: readonly WorktreeRecord[];
-  readonly workspaces: readonly WorkspaceRecord[];
   readonly wsMenu: WorkspaceMenuState;
-  readonly api: PiDesktopApi;
-  readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
-  readonly updateSnapshot: (
-    api: PiDesktopApi,
-    setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
-    action: () => Promise<DesktopAppState>,
-  ) => Promise<DesktopAppState>;
   readonly showDiffPanel: boolean;
   readonly onToggleDiffPanel: () => void;
 }
 
-export function Topbar(props: TopbarProps) {
-  const {
-    activeView,
-    rootWorkspace,
-    selectedWorkspace,
-    selectedSession,
-    selectedSessionTitle,
-    selectedWorktree,
-    activeWorktrees,
-    workspaces,
-    wsMenu,
-    api,
-    setSnapshot,
-    updateSnapshot,
-    showDiffPanel,
-    onToggleDiffPanel,
-  } = props;
+export function Topbar({ wsMenu, showDiffPanel, onToggleDiffPanel }: TopbarProps) {
+  const dispatch = useAppDispatch();
+
+  const activeView = useAppSnapshot((state) => state?.activeView ?? "threads") as AppView;
+  const workspaces = useAppSnapshot(
+    (state) => state?.workspaces ?? EMPTY_WORKSPACES,
+  );
+  const selectedWorkspace = useAppSnapshot(
+    (state) => (state ? getSelectedWorkspace(state) ?? state.workspaces[0] : undefined),
+  );
+  const selectedSession = useAppSnapshot(
+    (state) => (state ? getSelectedSession(state) ?? getSelectedWorkspace(state)?.sessions[0] : undefined),
+  );
+  const worktreesByWorkspace = useAppSnapshot(
+    (state) => state?.worktreesByWorkspace ?? EMPTY_WORKTREE_MAP,
+  );
+
+  const rootWorkspace = useMemo(() => {
+    if (!selectedWorkspace) return undefined;
+    const id = resolveRepoWorkspaceId(workspaces, selectedWorkspace.id);
+    return id ? workspaces.find((workspace) => workspace.id === id) ?? selectedWorkspace : selectedWorkspace;
+  }, [workspaces, selectedWorkspace]);
+
+  const activeWorktrees = useAppSnapshot<readonly WorktreeRecord[]>(
+    (state) => {
+      if (!state || !rootWorkspace) return EMPTY_WORKTREES;
+      return state.worktreesByWorkspace[rootWorkspace.id] ?? EMPTY_WORKTREES;
+    },
+    shallowEqualArray,
+  );
+
+  const linkedWorktreeForSelection = useMemo(() => {
+    if (!selectedWorkspace) return undefined;
+    return Object.values(worktreesByWorkspace)
+      .flat()
+      .find((worktree) => worktree.linkedWorkspaceId === selectedWorkspace.id);
+  }, [worktreesByWorkspace, selectedWorkspace]);
+
+  const sessionExtensionUi = useAppSnapshot((state) => {
+    if (!state || !selectedWorkspace || !selectedSession) return undefined;
+    return state.sessionExtensionUiBySession[`${selectedWorkspace.id}:${selectedSession.id}`];
+  });
+  const selectedSessionTitle = sessionExtensionUi?.title ?? selectedSession?.title;
 
   const handleDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
       return;
     }
-
     if (target.closest(".topbar__actions")) {
       return;
     }
-
-    void api.toggleWindowMaximize();
+    void dispatch.toggleWindowMaximize();
   };
 
   return (
@@ -73,7 +83,9 @@ export function Topbar(props: TopbarProps) {
                 type="button"
                 onClick={() => wsMenu.setEnvironmentMenuOpen((current) => !current)}
               >
-                {selectedWorkspace.kind === "worktree" ? selectedWorktree?.name ?? selectedWorkspace.name : "Local"}
+                {selectedWorkspace.kind === "worktree"
+                  ? linkedWorktreeForSelection?.name ?? selectedWorkspace.name
+                  : "Local"}
               </button>
               {wsMenu.environmentMenuOpen && rootWorkspace ? (
                 <div className="workspace-menu environment-picker__menu">
@@ -138,7 +150,7 @@ export function Topbar(props: TopbarProps) {
           className="icon-button topbar__icon"
           type="button"
           onClick={() => {
-            void updateSnapshot(api, setSnapshot, () => api.pickWorkspace());
+            void dispatch.pickWorkspace();
           }}
         >
           <FolderIcon />
@@ -147,3 +159,7 @@ export function Topbar(props: TopbarProps) {
     </header>
   );
 }
+
+const EMPTY_WORKSPACES: readonly never[] = [];
+const EMPTY_WORKTREES: readonly never[] = [];
+const EMPTY_WORKTREE_MAP: Readonly<Record<string, readonly never[]>> = {};

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -13,30 +13,23 @@ import {
 } from "@dnd-kit/core";
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { AppView, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
+import {
+  getSelectedSession,
+  getSelectedWorkspace,
+  type AppView,
+  type SessionRecord,
+  type WorkspaceRecord,
+  type WorktreeRecord,
+} from "./desktop-state";
 import { ArchiveIcon, ChevronDownIcon, ExtensionIcon, FolderIcon, PlusIcon, RestoreIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
 import { formatRelativeTime } from "./string-utils";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
+import { appStore, buildThreadGroupsCached, useAppDispatch, useAppSnapshot } from "./store";
 import type { ThreadGroup, ThreadListEntry } from "./thread-groups";
-import type { Dispatch, SetStateAction } from "react";
-import type { DesktopAppState } from "./desktop-state";
 
 interface SidebarProps {
-  readonly activeView: AppView;
-  readonly selectedWorkspace: WorkspaceRecord | undefined;
-  readonly selectedSession: SessionRecord | undefined;
-  readonly visibleWorkspaces: readonly WorkspaceRecord[];
-  readonly threadGroups: readonly ThreadGroup[];
-  readonly linkedWorktreeByWorkspaceId: Map<string, WorktreeRecord>;
   readonly wsMenu: WorkspaceMenuState;
-  readonly api: PiDesktopApi;
-  readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
-  readonly updateSnapshot: (
-    api: PiDesktopApi,
-    setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
-    action: () => Promise<DesktopAppState>,
-  ) => Promise<DesktopAppState>;
   readonly onNewThread: () => void;
   readonly onSetActiveView: (view: AppView) => void;
   readonly onOpenSkills: (workspaceId?: string) => void;
@@ -49,16 +42,7 @@ interface SidebarProps {
 
 export function Sidebar(props: SidebarProps) {
   const {
-    activeView,
-    selectedWorkspace,
-    selectedSession,
-    visibleWorkspaces,
-    threadGroups,
-    linkedWorktreeByWorkspaceId,
     wsMenu,
-    api,
-    setSnapshot,
-    updateSnapshot,
     onNewThread,
     onSetActiveView,
     onOpenSkills,
@@ -68,6 +52,46 @@ export function Sidebar(props: SidebarProps) {
     onSelectSession,
     onUnarchiveSession,
   } = props;
+
+  const dispatch = useAppDispatch();
+  const api = dispatch as PiDesktopApi;
+
+  const activeView = useAppSnapshot((state) => state?.activeView ?? "threads") as AppView;
+  const selectedWorkspace = useAppSnapshot(
+    (state) => (state ? getSelectedWorkspace(state) ?? state.workspaces[0] : undefined),
+  );
+  const selectedSession = useAppSnapshot(
+    (state) => (state ? getSelectedSession(state) ?? getSelectedWorkspace(state)?.sessions[0] : undefined),
+  );
+
+  // Derived collections: read minimal slices, derive in useMemo gated on revision.
+  const revision = useAppSnapshot((state) => state?.revision ?? 0);
+  const workspaces = useAppSnapshot((state) => state?.workspaces ?? EMPTY_WORKSPACES);
+  const worktreesByWorkspace = useAppSnapshot(
+    (state) => state?.worktreesByWorkspace ?? EMPTY_WORKTREE_MAP,
+  );
+  const visibleWorkspaces = useMemo<readonly WorkspaceRecord[]>(() => {
+    if (workspaces.length === 0) return EMPTY_WORKSPACES;
+    const workspacesById = new Map(workspaces.map((workspace) => [workspace.id, workspace] as const));
+    const primaryWorkspaces = workspaces.filter((workspace) => workspace.kind === "primary");
+    const orphanWorkspaces = workspaces.filter(
+      (workspace) => workspace.kind === "worktree" && !workspacesById.has(workspace.rootWorkspaceId ?? ""),
+    );
+    return primaryWorkspaces.length > 0 ? [...primaryWorkspaces, ...orphanWorkspaces] : workspaces;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaces, revision]);
+  const linkedWorktreeByWorkspaceId = useMemo(() => {
+    return new Map(
+      Object.values(worktreesByWorkspace)
+        .flat()
+        .filter((worktree) => Boolean(worktree.linkedWorkspaceId))
+        .map((worktree) => [worktree.linkedWorkspaceId as string, worktree] as const),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [worktreesByWorkspace, revision]);
+  const threadGroups = useAppSnapshot<readonly ThreadGroup[]>(
+    (state) => (state ? buildThreadGroupsCached(state) : EMPTY_THREAD_GROUPS),
+  );
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -111,8 +135,11 @@ export function Sidebar(props: SidebarProps) {
 
     const newOrder = arrayMove(rootGroupIds, oldIndex, newIndex);
     // Optimistically update local state to avoid snap-back animation
-    setSnapshot((prev) => prev ? { ...prev, workspaceOrder: newOrder } : prev);
-    void api.reorderWorkspaces(newOrder);
+    const current = appStore.getSnapshot();
+    if (current) {
+      appStore.applyState({ ...current, workspaceOrder: newOrder });
+    }
+    void dispatch.reorderWorkspaces(newOrder);
   }
 
   const activeGroup = activeId ? rootGroups.find((g) => g.rootWorkspace.id === activeId) : undefined;
@@ -175,7 +202,7 @@ export function Sidebar(props: SidebarProps) {
               className="icon-button"
               type="button"
               onClick={() => {
-                void updateSnapshot(api, setSnapshot, () => api.pickWorkspace());
+                void dispatch.pickWorkspace();
               }}
             >
               <FolderIcon />
@@ -191,7 +218,7 @@ export function Sidebar(props: SidebarProps) {
               className="button button--primary"
               type="button"
               onClick={() => {
-                void updateSnapshot(api, setSnapshot, () => api.pickWorkspace());
+                void dispatch.pickWorkspace();
               }}
             >
               Open first folder
@@ -584,3 +611,8 @@ function ThreadSessionRow({
     </div>
   );
 }
+
+const EMPTY_WORKSPACES: readonly WorkspaceRecord[] = [];
+const EMPTY_WORKTREE_MAP: Readonly<Record<string, readonly WorktreeRecord[]>> = {};
+const EMPTY_THREAD_GROUPS: readonly ThreadGroup[] = [];
+
