@@ -178,6 +178,9 @@ export default function App() {
   const lastTimelineScrollTopBySessionRef = useRef(new Map<string, number>());
   const lastTimelinePinnedBySessionRef = useRef(new Map<string, boolean>());
   const preserveBottomOnNextPaneResizeRef = useRef(false);
+  const exactBottomRestoreSessionKeyRef = useRef<string | null>(null);
+  const deferredPinnedBottomAlignmentRef = useRef(false);
+  const pendingPinnedBottomBehaviorRef = useRef<ScrollBehavior>("auto");
   const previousActiveViewRef = useRef<AppView | null>(null);
   const hydratedComposerSessionKeyRef = useRef("");
   const handledComposerSyncNonceRef = useRef(0);
@@ -376,6 +379,11 @@ export default function App() {
       newThreadComposerRef.current?.focus();
     });
   };
+  const resetExactBottomRestoreState = (nextSessionKey: string | null = null) => {
+    exactBottomRestoreSessionKeyRef.current = nextSessionKey;
+    deferredPinnedBottomAlignmentRef.current = false;
+    pendingPinnedBottomBehaviorRef.current = "auto";
+  };
   const updateNewThreadPrompt = useCallback((value: SetStateAction<string>) => {
     setNewThreadComposerError(undefined);
     setNewThreadPrompt(value);
@@ -383,12 +391,6 @@ export default function App() {
   const scrollTimelineToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const pane = timelinePaneRef.current;
     if (!pane) {
-      return;
-    }
-
-    if (activeTranscript.length > VIRTUALIZATION_THRESHOLD && !disableTimelineVirtualization) {
-      preserveBottomOnNextPaneResizeRef.current = true;
-      setDisableTimelineVirtualization(true);
       return;
     }
 
@@ -416,29 +418,91 @@ export default function App() {
     };
 
     align(6);
-  }, [activeTranscript.length, disableTimelineVirtualization, selectedSessionKey]);
+  }, [selectedSessionKey]);
+
+  const requestPinnedBottomAlignment = useCallback((
+    behavior: ScrollBehavior = "auto",
+    options?: { readonly preferExactRestore?: boolean },
+  ) => {
+    if (exactBottomRestoreSessionKeyRef.current === selectedSessionKey && selectedSessionKey) {
+      pendingPinnedBottomBehaviorRef.current = behavior;
+      deferredPinnedBottomAlignmentRef.current = true;
+      return;
+    }
+
+    if (options?.preferExactRestore && selectedSessionKey && activeTranscript.length > VIRTUALIZATION_THRESHOLD) {
+      exactBottomRestoreSessionKeyRef.current = selectedSessionKey;
+      pendingPinnedBottomBehaviorRef.current = behavior;
+      preserveBottomOnNextPaneResizeRef.current = true;
+      setDisableTimelineVirtualization(true);
+      return;
+    }
+
+    scrollTimelineToBottom(behavior);
+  }, [activeTranscript.length, scrollTimelineToBottom, selectedSessionKey]);
 
   const finalizeTimelineVirtualizationDisable = useCallback(() => {
     const pane = timelinePaneRef.current;
+    const restoreSessionKey = exactBottomRestoreSessionKeyRef.current;
     if (!pane || snapshot?.activeView !== "threads") {
+      resetExactBottomRestoreState();
       setDisableTimelineVirtualization(false);
       return;
     }
+
+    if (restoreSessionKey !== selectedSessionKey || !restoreSessionKey) {
+      setDisableTimelineVirtualization(false);
+      return;
+    }
+
+    const shouldRestoreBottom =
+      pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current || deferredPinnedBottomAlignmentRef.current;
+    if (!shouldRestoreBottom) {
+      resetExactBottomRestoreState();
+      setDisableTimelineVirtualization(false);
+      return;
+    }
+
+    const finishRestore = (remainingChecks: number, stableChecks: number) => {
+      window.requestAnimationFrame(() => {
+        if (timelinePaneRef.current !== pane || exactBottomRestoreSessionKeyRef.current !== restoreSessionKey) {
+          return;
+        }
+
+        if (pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current) {
+          scrollTimelineToBottom();
+        }
+
+        const remaining = pane.scrollHeight - pane.scrollTop - pane.clientHeight;
+        const nextStableChecks = remaining <= 16 ? stableChecks + 1 : 0;
+        if (remainingChecks <= 1 || nextStableChecks >= 2) {
+          const shouldApplyDeferredAlignment = deferredPinnedBottomAlignmentRef.current;
+          resetExactBottomRestoreState();
+          if (shouldApplyDeferredAlignment) {
+            scrollTimelineToBottom();
+          }
+          preserveBottomOnNextPaneResizeRef.current = false;
+          return;
+        }
+
+        finishRestore(remainingChecks - 1, nextStableChecks);
+      });
+    };
 
     if (pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current) {
       scrollTimelineToBottom();
     }
 
     window.requestAnimationFrame(() => {
-      if (timelinePaneRef.current !== pane) {
+      if (timelinePaneRef.current !== pane || exactBottomRestoreSessionKeyRef.current !== restoreSessionKey) {
         return;
       }
-      if (pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current) {
-        scrollTimelineToBottom();
-      }
       setDisableTimelineVirtualization(false);
+      scrollTimelineToBottom(pendingPinnedBottomBehaviorRef.current);
+      pendingPinnedBottomBehaviorRef.current = "auto";
+      finishRestore(6, 0);
     });
-  }, [scrollTimelineToBottom, snapshot?.activeView]);
+  }, [scrollTimelineToBottom, selectedSessionKey, snapshot?.activeView]);
 
   const setTimelinePaneElement = useCallback((node: HTMLDivElement | null) => {
     timelinePaneRef.current = node;
@@ -465,7 +529,7 @@ export default function App() {
           return;
         }
         if (pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current) {
-          scrollTimelineToBottom();
+          requestPinnedBottomAlignment("auto", { preferExactRestore: true });
         }
       });
       return;
@@ -478,6 +542,7 @@ export default function App() {
 
     node.scrollTop = savedScrollTop;
     pinnedToBottomRef.current = false;
+    resetExactBottomRestoreState();
     lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, false);
     window.requestAnimationFrame(() => {
       if (timelinePaneRef.current !== node) {
@@ -494,18 +559,18 @@ export default function App() {
           waitForFrames(remainingFrames - 1);
           return;
         }
-        scrollTimelineToBottom();
+        requestPinnedBottomAlignment("auto", { preferExactRestore: true });
         window.requestAnimationFrame(() => {
           preserveBottomOnNextPaneResizeRef.current = false;
           if (pinnedToBottomRef.current) {
-            scrollTimelineToBottom();
+            requestPinnedBottomAlignment("auto", { preferExactRestore: true });
           }
         });
       });
     };
 
     waitForFrames(delayFrames);
-  }, [scrollTimelineToBottom]);
+  }, [requestPinnedBottomAlignment]);
 
   const toggleDiffPanel = useCallback(() => {
     const pane = timelinePaneRef.current;
@@ -876,8 +941,30 @@ export default function App() {
     pinnedToBottomRef.current = true;
     previousTimelinePaneSizeRef.current = null;
     preserveBottomOnNextPaneResizeRef.current = false;
+    resetExactBottomRestoreState(selectedSessionKey || null);
     setDisableTimelineVirtualization(Boolean(selectedSessionKey));
   }, [selectedSessionKey]);
+
+  useLayoutEffect(() => {
+    if (snapshot?.activeView !== "threads" || !selectedSession || activeTranscript.length === 0) {
+      return;
+    }
+    if (exactBottomRestoreSessionKeyRef.current !== selectedSessionKey) {
+      return;
+    }
+    if (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current) {
+      return;
+    }
+
+    scrollTimelineToBottom();
+  }, [
+    activeTranscript,
+    disableTimelineVirtualization,
+    scrollTimelineToBottom,
+    selectedSession,
+    selectedSessionKey,
+    snapshot?.activeView,
+  ]);
 
   useEffect(() => {
     setTreeModalState((current) =>
@@ -905,6 +992,7 @@ export default function App() {
 
     if (snapshot.activeView !== "threads") {
       previousTimelinePaneSizeRef.current = null;
+      resetExactBottomRestoreState();
     }
 
     if (
@@ -954,17 +1042,17 @@ export default function App() {
     const nextHeight = composer.getBoundingClientRect().height;
     if (Math.abs(nextHeight - previousHeight) >= 1 && shouldPreserveBottom) {
       preserveBottomOnNextPaneResizeRef.current = true;
+      requestPinnedBottomAlignment("auto", { preferExactRestore: true });
       window.requestAnimationFrame(() => {
-        scrollTimelineToBottom();
         window.requestAnimationFrame(() => {
           preserveBottomOnNextPaneResizeRef.current = false;
           if (pinnedToBottomRef.current) {
-            scrollTimelineToBottom();
+            requestPinnedBottomAlignment("auto", { preferExactRestore: true });
           }
         });
       });
     }
-  }, [composerDraft, scrollTimelineToBottom]);
+  }, [composerDraft, requestPinnedBottomAlignment]);
 
   useLayoutEffect(() => {
     if (snapshot?.activeView !== "threads" || !selectedSession) {
@@ -992,10 +1080,10 @@ export default function App() {
       preserveBottomOnNextPaneResizeRef.current = false;
       pinnedToBottomRef.current = true;
       window.requestAnimationFrame(() => {
-        scrollTimelineToBottom();
+        requestPinnedBottomAlignment("auto", { preferExactRestore: true });
         window.requestAnimationFrame(() => {
           if (pinnedToBottomRef.current) {
-            scrollTimelineToBottom();
+            requestPinnedBottomAlignment("auto", { preferExactRestore: true });
           }
         });
       });
@@ -1030,7 +1118,7 @@ export default function App() {
       resizeObserver.disconnect();
       previousTimelinePaneSizeRef.current = null;
     };
-  }, [scrollTimelineToBottom, selectedSessionKey, showDiffPanel, snapshot?.activeView, timelinePaneMountVersion]);
+  }, [requestPinnedBottomAlignment, selectedSessionKey, showDiffPanel, snapshot?.activeView, timelinePaneMountVersion]);
 
   useEffect(() => {
     const pane = timelinePaneRef.current;
@@ -1045,12 +1133,12 @@ export default function App() {
     lastTranscriptMarkerRef.current = marker;
 
     if (pinnedToBottomRef.current) {
-      scrollTimelineToBottom();
+      requestPinnedBottomAlignment("auto", { preferExactRestore: true });
       return;
     }
 
     setShowJumpToLatest(true);
-  }, [activeTranscript, scrollTimelineToBottom, selectedSession, selectedSessionKey]);
+  }, [activeTranscript, requestPinnedBottomAlignment, selectedSession, selectedSessionKey]);
 
   const handleTimelineContentHeightChange = useCallback(() => {
     if (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current) {
@@ -1061,9 +1149,9 @@ export default function App() {
       if (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current) {
         return;
       }
-      scrollTimelineToBottom();
+      requestPinnedBottomAlignment("auto", { preferExactRestore: true });
     });
-  }, [scrollTimelineToBottom]);
+  }, [requestPinnedBottomAlignment]);
 
   if (!api || !snapshot) {
     return (
@@ -1556,7 +1644,7 @@ export default function App() {
   };
 
   const jumpToLatest = () => {
-    scrollTimelineToBottom("smooth");
+    requestPinnedBottomAlignment("smooth", { preferExactRestore: true });
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
