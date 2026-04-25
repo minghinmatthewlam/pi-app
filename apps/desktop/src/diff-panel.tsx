@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PiDesktopApi } from "./ipc";
 import { InlineDiff } from "./diff-inline";
 import { RefreshIcon } from "./icons";
+import { extensionToLanguage } from "./syntax-highlight";
 
 interface ChangedFile {
   readonly path: string;
@@ -109,7 +110,7 @@ export function DiffPanel({ workspaceId, api, sessionStatus }: DiffPanelProps) {
           {selectedFile && diffText ? (
             <div className="diff-panel__viewer">
               <div className="diff-panel__viewer-header">{selectedFile}</div>
-              <InlineDiff diff={diffText} />
+              <InlineDiff diff={diffText} language={extensionToLanguage(selectedFile)} />
             </div>
           ) : null}
         </>

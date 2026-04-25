@@ -3,6 +3,7 @@ import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMes
 import { MessageMarkdown } from "./message-markdown";
 import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
 import { ChevronRightIcon, CopyIcon, FileIcon } from "./icons";
+import { extensionToLanguage } from "./syntax-highlight";
 
 export function TimelineItem({
   item,
@@ -110,6 +111,7 @@ function TimelineToolCallItem({
   const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
   const diffStats = diffText ? countDiffStats(diffText) : undefined;
   const compactLabel = buildCompactLabel(item, diffStats);
+  const diffLanguage = diffText ? extensionToLanguage(extractFilename(item.input)) : undefined;
 
   const handleCopy = () => {
     const text = diffText ?? formatToolContent(item.input, item.output);
@@ -158,7 +160,7 @@ function TimelineToolCallItem({
                   <CopyIcon />
                 </button>
               </div>
-              <InlineDiff diff={diffText} />
+              <InlineDiff diff={diffText} language={diffLanguage} />
             </>
           ) : (
             <>
