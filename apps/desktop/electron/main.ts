@@ -24,6 +24,7 @@ import {
 } from "./notification-permission";
 import { checkForUpdate, initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
+import { WindowActivationTracker } from "./window-activation-tracker";
 import type { DesktopAppState, ThemeMode } from "../src/desktop-state";
 import { desktopIpc, getDesktopCommandFromShortcut } from "../src/ipc";
 import { SUPPORTED_COMPOSER_IMAGE_TYPES } from "../src/composer-attachments";
@@ -205,25 +206,16 @@ function attachStatePublisher(window: BrowserWindow): void {
 
 function attachViewedSessionTracking(window: BrowserWindow): void {
   stopTrackingWindowActivation?.();
+  stopTrackingWindowActivation = undefined;
 
-  const handleActivation = () => {
+  const tracker = new WindowActivationTracker(window);
+  const unsubscribe = tracker.onActivate(() => {
     store.handleWindowActivation();
-  };
-  const clearTracking = () => {
-    stopTrackingWindowActivation?.();
-    stopTrackingWindowActivation = undefined;
-  };
-
-  window.on("focus", handleActivation);
-  window.on("show", handleActivation);
-  window.on("restore", handleActivation);
-  window.once("closed", clearTracking);
+  });
 
   stopTrackingWindowActivation = () => {
-    window.off("focus", handleActivation);
-    window.off("show", handleActivation);
-    window.off("restore", handleActivation);
-    window.off("closed", clearTracking);
+    unsubscribe();
+    tracker.dispose();
   };
 }
 

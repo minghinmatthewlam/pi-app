@@ -8,6 +8,7 @@ import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
 import { getSelectedSession } from "../src/desktop-state";
 import { isSessionActivelyViewed } from "./session-visibility";
+import { WindowActivationTracker } from "./window-activation-tracker";
 
 export class NotificationManager {
   private readonly completedRunKeys = new Set<string>();
@@ -81,30 +82,19 @@ export class NotificationManager {
       return;
     }
 
-    const reevaluateVisibility = () => {
+    const tracker = new WindowActivationTracker(this.trackedWindow);
+    const unsubscribe = tracker.onVisibilityChange(() => {
       void this.reevaluateOnboardingState(false);
-    };
-    const clearTrackedWindow = () => {
+    });
+    this.trackedWindow.once("closed", () => {
       this.trackWindow(null);
-    };
-
-    this.trackedWindow.on("focus", reevaluateVisibility);
-    this.trackedWindow.on("blur", reevaluateVisibility);
-    this.trackedWindow.on("show", reevaluateVisibility);
-    this.trackedWindow.on("hide", reevaluateVisibility);
-    this.trackedWindow.on("minimize", reevaluateVisibility);
-    this.trackedWindow.on("restore", reevaluateVisibility);
-    this.trackedWindow.once("closed", clearTrackedWindow);
+    });
     this.stopTrackingWindow = () => {
-      this.trackedWindow?.off("focus", reevaluateVisibility);
-      this.trackedWindow?.off("blur", reevaluateVisibility);
-      this.trackedWindow?.off("show", reevaluateVisibility);
-      this.trackedWindow?.off("hide", reevaluateVisibility);
-      this.trackedWindow?.off("minimize", reevaluateVisibility);
-      this.trackedWindow?.off("restore", reevaluateVisibility);
-      this.trackedWindow?.off("closed", clearTrackedWindow);
+      unsubscribe();
+      tracker.dispose();
     };
-    reevaluateVisibility();
+    // Seed on attach: matches prior synchronous reevaluateVisibility() call.
+    void this.reevaluateOnboardingState(false);
   }
 
   private async handleEvent(event: SessionDriverEvent): Promise<void> {

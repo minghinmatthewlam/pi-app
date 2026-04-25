@@ -4,6 +4,7 @@ import { appendFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { DesktopNotificationPermissionStatus } from "../src/ipc";
+import { WindowActivationTracker } from "./window-activation-tracker";
 
 const execFileAsync = promisify(execFile);
 const TEST_STATUS_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_STATUS";
@@ -56,22 +57,16 @@ export class NotificationPermissionService {
       return;
     }
 
-    const handleWindowActivation = () => {
+    const tracker = new WindowActivationTracker(this.window);
+    const unsubscribe = tracker.onActivate(() => {
       void this.reconcileOnActivation();
-    };
-    const clearTrackedWindow = () => {
+    });
+    this.window.once("closed", () => {
       this.trackWindow(null);
-    };
-
-    this.window.on("focus", handleWindowActivation);
-    this.window.on("show", handleWindowActivation);
-    this.window.on("restore", handleWindowActivation);
-    this.window.once("closed", clearTrackedWindow);
+    });
     this.stopTrackingWindow = () => {
-      this.window?.off("focus", handleWindowActivation);
-      this.window?.off("show", handleWindowActivation);
-      this.window?.off("restore", handleWindowActivation);
-      this.window?.off("closed", clearTrackedWindow);
+      unsubscribe();
+      tracker.dispose();
     };
   }
 
