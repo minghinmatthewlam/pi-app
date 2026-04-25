@@ -2,7 +2,7 @@ import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
 import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
-import { ChevronRightIcon, CopyIcon, FileIcon } from "./icons";
+import { ChevronRightIcon, CopyIcon, FileIcon, PanelRightIcon } from "./icons";
 import { extensionToLanguage } from "./syntax-highlight";
 
 export function TimelineItem({
@@ -116,7 +116,9 @@ function TimelineToolCallItem({
   const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
   const diffStats = diffText ? countDiffStats(diffText) : undefined;
   const compactLabel = buildCompactLabel(item, diffStats);
-  const diffLanguage = diffText ? extensionToLanguage(extractFilename(item.input)) : undefined;
+  const filePath = isWriteTool(item.toolName) ? extractFilename(item.input) : "";
+  const diffLanguage = diffText ? extensionToLanguage(filePath) : undefined;
+  const showViewInDiff = Boolean(filePath) && Boolean(onViewFileInDiff);
 
   const handleCopy = () => {
     const text = diffText ?? formatToolContent(item.input, item.output);
@@ -125,28 +127,44 @@ function TimelineToolCallItem({
 
   return (
     <article className={`timeline-tool timeline-tool--${item.status}`}>
-      <button
-        className="timeline-tool__header"
-        type="button"
-        aria-expanded={expanded}
-        disabled={!hasContent}
-        onClick={() => onToggle?.(item.callId)}
-      >
-        {hasContent ? (
-          <span className={`timeline-tool__chevron ${expanded ? "timeline-tool__chevron--expanded" : ""}`}>
-            <ChevronRightIcon />
-          </span>
+      <div className="timeline-tool__header-row">
+        <button
+          className="timeline-tool__header"
+          type="button"
+          aria-expanded={expanded}
+          disabled={!hasContent}
+          onClick={() => onToggle?.(item.callId)}
+        >
+          {hasContent ? (
+            <span className={`timeline-tool__chevron ${expanded ? "timeline-tool__chevron--expanded" : ""}`}>
+              <ChevronRightIcon />
+            </span>
+          ) : null}
+          <span className="timeline-tool__label">{compactLabel}</span>
+          {diffStats ? (
+            <span className="timeline-tool__diff-stats">
+              <span className="timeline-tool__stat-add">+{diffStats.added}</span>
+              {" "}
+              <span className="timeline-tool__stat-del">-{diffStats.removed}</span>
+            </span>
+          ) : null}
+          <span className="timeline-tool__meta-inline">{`${item.toolName} \u00b7 ${statusLabel(item.status)}`}</span>
+        </button>
+        {showViewInDiff ? (
+          <button
+            aria-label={`View ${filePath} in changes`}
+            className="icon-button timeline-tool__view-in-diff"
+            data-testid="timeline-tool-view-in-diff"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onViewFileInDiff?.(filePath);
+            }}
+          >
+            <PanelRightIcon />
+          </button>
         ) : null}
-        <span className="timeline-tool__label">{compactLabel}</span>
-        {diffStats ? (
-          <span className="timeline-tool__diff-stats">
-            <span className="timeline-tool__stat-add">+{diffStats.added}</span>
-            {" "}
-            <span className="timeline-tool__stat-del">-{diffStats.removed}</span>
-          </span>
-        ) : null}
-        <span className="timeline-tool__meta-inline">{`${item.toolName} \u00b7 ${statusLabel(item.status)}`}</span>
-      </button>
+      </div>
       {expanded && hasContent ? (
         <div className="timeline-tool__body">
           {diffText ? (
