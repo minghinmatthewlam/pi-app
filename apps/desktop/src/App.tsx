@@ -16,7 +16,7 @@ import {
 } from "./desktop-state";
 import { formatRelativeTime } from "./string-utils";
 import { ComposerPanel } from "./composer-panel";
-import { DiffPanel } from "./diff-panel";
+import { DiffPanel, type DiffPanelHandle } from "./diff-panel";
 import { buildModelOptions } from "./composer-commands";
 import { parseTreeComposerCommand } from "./composer-commands";
 import {
@@ -186,6 +186,7 @@ export default function App() {
   const handledComposerSyncNonceRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
+  const diffPanelRef = useRef<DiffPanelHandle | null>(null);
   const [timelinePaneMountVersion, setTimelinePaneMountVersion] = useState(0);
   const [disableTimelineVirtualization, setDisableTimelineVirtualization] = useState(true);
   const threadSearch = useThreadSearch(timelinePaneRef);
@@ -571,6 +572,11 @@ export default function App() {
 
     waitForFrames(delayFrames);
   }, [requestPinnedBottomAlignment]);
+
+  const handleViewFileInDiff = useCallback((path: string) => {
+    setShowDiffPanel(true);
+    void diffPanelRef.current?.selectFile(path);
+  }, []);
 
   const toggleDiffPanel = useCallback(() => {
     const pane = timelinePaneRef.current;
@@ -1979,6 +1985,7 @@ export default function App() {
                   showJumpToLatest={showJumpToLatest}
                   onJumpToLatest={jumpToLatest}
                   onContentHeightChange={handleTimelineContentHeightChange}
+                  onViewFileInDiff={handleViewFileInDiff}
                 />
               </div>
             </section>
@@ -2080,6 +2087,7 @@ export default function App() {
 
         {showDiffPanel && selectedWorkspace && selectedSession ? (
           <DiffPanel
+            ref={diffPanelRef}
             workspaceId={selectedWorkspace.id}
             sessionId={selectedSession.id}
             api={api}
