@@ -34,7 +34,9 @@ export function DiffPanel({
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [diffText, setDiffText] = useState("");
   const [loading, setLoading] = useState(false);
-  const [reviewed, setReviewed] = useState<ReadonlySet<string>>(() => new Set());
+  const [reviewed, setReviewed] = useState<ReadonlySet<string>>(() =>
+    loadReviewed(workspaceId, sessionId),
+  );
 
   useEffect(() => {
     setReviewed(loadReviewed(workspaceId, sessionId));
@@ -69,7 +71,7 @@ export function DiffPanel({
 
   useEffect(() => {
     refresh();
-  }, [workspaceId]);
+  }, [workspaceId, sessionId]);
 
   useEffect(() => {
     if (!fileRequest) return;
@@ -91,7 +93,7 @@ export function DiffPanel({
       `[data-file-path="${CSS.escape(selectedFile)}"]`,
     );
     row?.scrollIntoView({ block: "nearest", behavior: "auto" });
-  }, [selectedFile]);
+  }, [selectedFile, files]);
 
   const handleStage = (filePath: string) => {
     void api.stageFile(workspaceId, filePath).then(refresh);

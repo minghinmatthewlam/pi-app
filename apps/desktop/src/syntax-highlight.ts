@@ -121,10 +121,12 @@ class HljsHtmlParser {
 
 function decodeEntities(s: string): string {
   if (s.indexOf("&") < 0) return s;
+  // &amp; must be replaced last so &amp;lt; etc. survive intact.
   return s
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
+    .replace(/&#x27;/gi, "'")
     .replace(/&#39;/g, "'")
     .replace(/&amp;/g, "&");
 }
