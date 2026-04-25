@@ -2078,11 +2078,12 @@ export default function App() {
           </section>
         )}
 
-        {showDiffPanel && selectedWorkspace ? (
+        {showDiffPanel && selectedWorkspace && selectedSession ? (
           <DiffPanel
             workspaceId={selectedWorkspace.id}
+            sessionId={selectedSession.id}
             api={api}
-            sessionStatus={selectedSession?.status}
+            sessionStatus={selectedSession.status}
           />
         ) : null}
       </main>
