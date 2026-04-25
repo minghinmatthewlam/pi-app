@@ -1,15 +1,14 @@
-import { execFile } from "node:child_process";
 import { mkdir, realpath } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
-import { promisify } from "node:util";
+import { basename, dirname } from "node:path";
 import type {
   CatalogStorage,
   WorktreeCatalogEntry,
   WorktreeCatalogSnapshot,
 } from "@pi-gui/catalogs";
 import type { WorkspaceRef } from "@pi-gui/session-driver";
+import { assertNoLeadingDash, resolveLexical, runGitOrThrow } from "./git-runner";
 
-const execFileAsync = promisify(execFile);
+const MAX_BUFFER_WORKTREE = 10 * 1024 * 1024;
 
 export interface GitWorktreeManagerOptions {
   readonly catalogStorage: CatalogStorage;
@@ -56,15 +55,26 @@ export class GitWorktreeManager {
     if (!normalizedPath) {
       throw new Error("Worktree path cannot be empty.");
     }
-    const worktreePath = resolve(normalizedPath);
+    // Lexical-only resolve: the path doesn't exist yet, so realpath would fail.
+    const worktreePath = resolveLexical(normalizedPath);
+    assertNoLeadingDash("Worktree path", worktreePath);
+
+    const startPoint = input.startPoint?.trim() || "HEAD";
+    assertNoLeadingDash("Worktree start point", startPoint);
+
+    if (input.branchName !== undefined) {
+      assertNoLeadingDash("Branch name", input.branchName);
+    }
 
     await mkdir(dirname(worktreePath), { recursive: true });
 
+    // `--` separator before user-supplied positional args (path + start point)
+    // closes the argv-injection vector that `assertNoLeadingDash` defends against.
     const args = ["-C", repoRoot, "worktree", "add"];
     if (input.branchName) {
       args.push("-b", input.branchName);
     }
-    args.push(worktreePath, input.startPoint?.trim() || "HEAD");
+    args.push("--", worktreePath, startPoint);
     await runGit(args);
 
     const canonicalWorktreePath = await canonicalPath(worktreePath);
@@ -101,6 +111,7 @@ export class GitWorktreeManager {
         "worktree",
         "remove",
         ...(options.force ? ["--force"] : []),
+        "--",
         targetPath,
       ]);
     } catch (error) {
@@ -264,12 +275,9 @@ function normalizeBranchName(value: string): string | undefined {
   return branch.length > 0 && branch !== "detached" ? branch : undefined;
 }
 
-async function runGit(args: readonly string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", [...args], {
-    encoding: "utf8",
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  return stdout;
+function runGit(args: readonly string[]): Promise<string> {
+  // No cwd: relies on `-C <path>` in args (preserves prior behavior).
+  return runGitOrThrow(args, { maxBuffer: MAX_BUFFER_WORKTREE });
 }
 
 function nowIso(): string {
@@ -277,7 +285,7 @@ function nowIso(): string {
 }
 
 async function canonicalPath(pathValue: string): Promise<string> {
-  const resolved = resolve(pathValue);
+  const resolved = resolveLexical(pathValue);
   try {
     return await realpath(resolved);
   } catch {
