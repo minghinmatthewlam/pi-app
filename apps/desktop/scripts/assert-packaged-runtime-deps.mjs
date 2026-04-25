@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
 
 const requiredPackages = [
@@ -22,6 +24,7 @@ const notificationHelperPath =
     ? path.join(desktopDir, "release", "mac-arm64", "pi-gui.app", "Contents", "MacOS", "pi-gui-notification-status-helper")
     : undefined;
 const pnpmBinary = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const requiredPiCodingAgentVersion = "0.70.2";
 
 if (!existsSync(asarPath)) {
   throw new Error(`Packaged app.asar not found at ${asarPath}. Run the packaging step first.`);
@@ -46,6 +49,8 @@ if (notificationHelperPath && !existsSync(notificationHelperPath)) {
   throw new Error(`Packaged app is missing notification helper: ${notificationHelperPath}`);
 }
 
+await verifyPackagedPiRuntime(asarPath);
+
 console.log(`Verified packaged runtime dependencies in ${asarPath}`);
 
 function resolveAsarPath(desktopDir, packagePlatform) {
@@ -68,4 +73,32 @@ function resolveAsarPath(desktopDir, packagePlatform) {
   }
 
   throw new Error(`Unsupported packaged runtime dependency target: ${packagePlatform}`);
+}
+
+async function verifyPackagedPiRuntime(asarPath) {
+  const extractedDir = mkdtempSync(path.join(tmpdir(), "pi-gui-packaged-runtime-"));
+  try {
+    execFileSync(pnpmBinary, ["exec", "asar", "extract", asarPath, extractedDir], {
+      cwd: desktopDir,
+      stdio: "pipe",
+    });
+
+    const packageJsonPath = path.join(extractedDir, "node_modules", "@mariozechner", "pi-coding-agent", "package.json");
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    if (packageJson.version !== requiredPiCodingAgentVersion) {
+      throw new Error(
+        `Packaged app has @mariozechner/pi-coding-agent ${packageJson.version}; expected ${requiredPiCodingAgentVersion}.`,
+      );
+    }
+
+    const runtimeEntry = path.join(extractedDir, "node_modules", "@mariozechner", "pi-coding-agent", "dist", "index.js");
+    const { AuthStorage, ModelRegistry } = await import(pathToFileURL(runtimeEntry).href);
+    const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
+    const codexModel = registry.getAll().find((model) => model.provider === "openai-codex" && model.id === "gpt-5.5");
+    if (!codexModel?.reasoning || !codexModel.input.includes("image")) {
+      throw new Error("Packaged Pi runtime does not expose openai-codex/gpt-5.5 with reasoning and image input.");
+    }
+  } finally {
+    rmSync(extractedDir, { recursive: true, force: true });
+  }
 }
