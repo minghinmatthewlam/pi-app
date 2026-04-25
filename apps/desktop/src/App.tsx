@@ -16,7 +16,7 @@ import {
 } from "./desktop-state";
 import { formatRelativeTime } from "./string-utils";
 import { ComposerPanel } from "./composer-panel";
-import { DiffPanel, type DiffPanelHandle } from "./diff-panel";
+import { DiffPanel, type DiffPanelFileRequest } from "./diff-panel";
 import { buildModelOptions } from "./composer-commands";
 import { parseTreeComposerCommand } from "./composer-commands";
 import {
@@ -201,7 +201,7 @@ export default function App() {
   const [openTerminalSessionKeys, setOpenTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [terminalHeight, setTerminalHeight] = useState(340);
-  const diffPanelRef = useRef<DiffPanelHandle | null>(null);
+  const [diffFileRequest, setDiffFileRequest] = useState<DiffPanelFileRequest | null>(null);
   const [timelinePaneMountVersion, setTimelinePaneMountVersion] = useState(0);
   const [disableTimelineVirtualization, setDisableTimelineVirtualization] = useState(true);
   const threadSearch = useThreadSearch(timelinePaneRef);
@@ -629,23 +629,10 @@ export default function App() {
     waitForFrames(delayFrames);
   }, [requestPinnedBottomAlignment]);
 
-  const pendingDiffSelectionRef = useRef<string | null>(null);
   const handleViewFileInDiff = useCallback((path: string) => {
-    if (diffPanelRef.current) {
-      void diffPanelRef.current.selectFile(path);
-    } else {
-      pendingDiffSelectionRef.current = path;
-    }
     setShowDiffPanel(true);
+    setDiffFileRequest({ path, nonce: Date.now() });
   }, []);
-
-  useEffect(() => {
-    if (!showDiffPanel) return;
-    const pending = pendingDiffSelectionRef.current;
-    if (!pending) return;
-    pendingDiffSelectionRef.current = null;
-    void diffPanelRef.current?.selectFile(pending);
-  }, [showDiffPanel]);
 
   const toggleDiffPanel = useCallback(() => {
     const pane = timelinePaneRef.current;
@@ -2264,11 +2251,11 @@ export default function App() {
 
         {showDiffPanel && selectedWorkspace && selectedSession ? (
           <DiffPanel
-            ref={diffPanelRef}
             workspaceId={selectedWorkspace.id}
             sessionId={selectedSession.id}
             api={api}
             sessionStatus={selectedSession.status}
+            fileRequest={diffFileRequest}
           />
         ) : null}
           </>
