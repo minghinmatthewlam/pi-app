@@ -671,6 +671,25 @@
   color: var(--ink-strong);
 }
 
+.diff-panel__counter {
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 12px;
+  color: var(--muted-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-panel__reviewed-checkbox {
+  margin: 0 0 0 12px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.diff-panel__file--reviewed .diff-panel__file-name {
+  color: var(--muted-soft);
+  text-decoration: line-through;
+}
+
 .diff-panel__empty {
   padding: 40px 16px;
   text-align: center;
