@@ -39,9 +39,6 @@ export function QueuedComposerMessages({
           key={message.id}
         >
           <div className="queued-composer-message__header">
-            <span className={`queued-composer-message__mode queued-composer-message__mode--${message.mode}`}>
-              {message.mode === "steer" ? "Steer" : "Queued"}
-            </span>
             <div className="queued-composer-message__actions">
               {message.mode !== "steer" ? (
                 <button type="button" onClick={() => onSteerMessage(message.id)}>

@@ -222,20 +222,39 @@ export async function steerQueuedComposerMessage(
     return store.emit();
   }
 
-  const next = store.getQueuedComposerMessages(sessionRef).map((message) =>
-    message.id === messageId && message.mode !== "steer"
-      ? {
-          ...message,
-          mode: "steer" as const,
-          updatedAt: new Date().toISOString(),
-        }
-      : message,
-  );
-  await store.driver.replaceQueuedMessages(sessionRef, toSessionQueuedMessages(next));
-  return store.refreshState({
-    clearLastError: true,
-    markSelectedSessionViewed: false,
-  });
+  const current = store.getQueuedComposerMessages(sessionRef);
+  const queuedMessage = current.find((message) => message.id === messageId);
+  if (!queuedMessage) {
+    return store.emit();
+  }
+
+  const steeredMessage = {
+    ...queuedMessage,
+    mode: "steer" as const,
+    updatedAt: new Date().toISOString(),
+  };
+  const next = current.map((message) => (message.id === messageId ? steeredMessage : message));
+  const nextSessionQueuedMessages = toSessionQueuedMessages(next);
+  const optimisticSteerMessage = nextSessionQueuedMessages.find((message) => message.id === messageId);
+
+  if (optimisticSteerMessage) {
+    appendQueuedUserMessage(store.sessionState.transcriptCache, sessionRef, optimisticSteerMessage);
+    store.publishSelectedTranscriptFor(sessionRef);
+    store.persistTranscriptCacheForSession(sessionRef);
+  }
+
+  try {
+    await store.driver.replaceQueuedMessages(sessionRef, nextSessionQueuedMessages);
+    return store.refreshState({
+      clearLastError: true,
+      markSelectedSessionViewed: false,
+    });
+  } catch (error) {
+    if (optimisticSteerMessage) {
+      removeOptimisticQueuedUserMessage(store, sessionRef, optimisticSteerMessage.id);
+    }
+    return store.withError(error);
+  }
 }
 
 export async function submitComposer(
@@ -367,14 +386,7 @@ export async function submitComposer(
       store.setQueuedComposerEditState(sessionRef, editingState);
     }
     if (optimisticSteerMessage) {
-      const optimisticMessageId = optimisticSteerMessage.id;
-      const transcript = store.sessionState.transcriptCache.get(key) ?? [];
-      store.sessionState.transcriptCache.set(
-        key,
-        transcript.filter((message) => message.id !== optimisticMessageId),
-      );
-      store.publishSelectedTranscriptFor(sessionRef);
-      store.persistTranscriptCacheForSession(sessionRef);
+      removeOptimisticQueuedUserMessage(store, sessionRef, optimisticSteerMessage.id);
     }
     return store.withError(error);
   }
@@ -503,6 +515,21 @@ function replaceQueuedComposerMessage(
   replacement: QueuedComposerMessage,
 ): QueuedComposerMessage[] {
   return messages.map((message) => (message.id === messageId ? replacement : message));
+}
+
+function removeOptimisticQueuedUserMessage(
+  store: AppStoreInternals,
+  sessionRef: SessionRef,
+  messageId: string,
+): void {
+  const key = sessionKey(sessionRef);
+  const transcript = store.sessionState.transcriptCache.get(key) ?? [];
+  store.sessionState.transcriptCache.set(
+    key,
+    transcript.filter((message) => message.id !== messageId),
+  );
+  store.publishSelectedTranscriptFor(sessionRef);
+  store.persistTranscriptCacheForSession(sessionRef);
 }
 
 /** Eagerly merge config fields so finishComposerCommand sees them before the async sessionUpdated event arrives. */

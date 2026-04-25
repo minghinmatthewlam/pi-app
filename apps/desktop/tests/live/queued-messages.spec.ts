@@ -55,7 +55,7 @@ test("queues follow-ups with Enter and steers the current run with Cmd+Enter", a
     await composer.press("Enter");
     await expect(sendButton).toHaveAttribute("aria-label", "Stop run");
     await expect(window.getByTestId("queued-composer-message").filter({ hasText: "FOLLOW_UP_DONE" })).toHaveCount(1);
-    await expect(window.getByTestId("queued-composer-message").filter({ hasText: "FOLLOW_UP_DONE" })).toContainText("Queued");
+    await expect(window.locator(".queued-composer-message__mode")).toHaveCount(0);
 
     await composer.fill("Change your pending final answer for the current run to exactly STEER_DONE.");
     await expect(sendButton).toHaveAttribute("aria-label", "Send message");

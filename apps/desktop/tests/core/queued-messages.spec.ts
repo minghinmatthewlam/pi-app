@@ -132,7 +132,7 @@ test("shows queued messages while running and preserves attachments through inli
     await expect(window.locator(".composer-attachment__name")).toContainText("local-draft.png");
 
     const queuedCard = window.getByTestId("queued-composer-message").first();
-    await expect(queuedCard).toContainText("Queued");
+    await expect(queuedCard.locator(".queued-composer-message__mode")).toHaveCount(0);
     await queuedCard.getByRole("button", { name: "Edit" }).click();
     await expect(window.getByTestId("queued-composer-editing")).toContainText("Editing queued message");
     await expect(composer).toHaveValue("Inspect the queued screenshot");
@@ -159,6 +159,13 @@ test("delineates queued follow-ups and submitted steers in the timeline", async 
     const window = await harness.firstWindow();
     await createNamedThread(window, "Queued timeline messages");
 
+    const queuedSteer: SessionQueuedMessage = {
+      id: "queued-steer-1",
+      mode: "followUp",
+      text: "Steer this queued message now",
+      createdAt: new Date(Date.now() - 6_000).toISOString(),
+      updatedAt: new Date(Date.now() - 6_000).toISOString(),
+    };
     const queuedFollowUp: SessionQueuedMessage = {
       id: "queued-follow-up-1",
       mode: "followUp",
@@ -166,10 +173,21 @@ test("delineates queued follow-ups and submitted steers in the timeline", async 
       createdAt: new Date(Date.now() - 5_000).toISOString(),
       updatedAt: new Date(Date.now() - 5_000).toISOString(),
     };
-    await emitRunningSnapshot(harness, window, [queuedFollowUp]);
+    await emitRunningSnapshot(harness, window, [queuedSteer, queuedFollowUp]);
 
+    await expect(window.getByTestId("queued-composer-message").filter({ hasText: queuedSteer.text })).toHaveCount(1);
     await expect(window.getByTestId("queued-composer-message").filter({ hasText: queuedFollowUp.text })).toHaveCount(1);
+    await expect(window.locator(".queued-composer-message__mode")).toHaveCount(0);
+    await expect(window.getByTestId("transcript")).not.toContainText(queuedSteer.text);
     await expect(window.getByTestId("transcript")).not.toContainText(queuedFollowUp.text);
+
+    await window
+      .getByTestId("queued-composer-message")
+      .filter({ hasText: queuedSteer.text })
+      .getByRole("button", { name: "Steer", exact: true })
+      .click();
+    await expect(window.getByTestId("queued-composer-message").filter({ hasText: queuedSteer.text })).toHaveCount(0);
+    await expect(window.getByTestId("transcript")).toContainText(queuedSteer.text);
 
     const composer = window.getByTestId("composer");
     await composer.fill("Steer the current run now");
@@ -192,6 +210,7 @@ test("delineates queued follow-ups and submitted steers in the timeline", async 
     await expect
       .poll(async () => transcriptMessages(window))
       .toEqual([
+        `user:${queuedSteer.text}`,
         "user:Steer the current run now",
         `user:${queuedFollowUp.text}`,
         "assistant:Answering the queued follow-up",
