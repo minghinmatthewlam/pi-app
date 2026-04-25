@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { PiDesktopApi } from "./ipc";
 import { InlineDiff } from "./diff-inline";
 import { RefreshIcon } from "./icons";
@@ -17,7 +17,14 @@ interface DiffPanelProps {
   readonly sessionStatus: string | undefined;
 }
 
-export function DiffPanel({ workspaceId, sessionId, api, sessionStatus }: DiffPanelProps) {
+export interface DiffPanelHandle {
+  selectFile(path: string): Promise<void>;
+}
+
+export const DiffPanel = forwardRef<DiffPanelHandle, DiffPanelProps>(function DiffPanel(
+  { workspaceId, sessionId, api, sessionStatus },
+  ref,
+) {
   const [files, setFiles] = useState<readonly ChangedFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [diffText, setDiffText] = useState("");
@@ -28,26 +35,54 @@ export function DiffPanel({ workspaceId, sessionId, api, sessionStatus }: DiffPa
     setReviewed(loadReviewed(workspaceId, sessionId));
   }, [workspaceId, sessionId]);
 
-  const refresh = useCallback(() => {
+  const fetchFiles = useCallback(async (): Promise<readonly ChangedFile[]> => {
     setLoading(true);
-    void api.getChangedFiles(workspaceId).then((result) => {
-      setFiles(result);
-      setSelectedFile((current) => {
-        if (current && !result.some((f) => f.path === current)) {
-          return null;
-        }
-        return current;
-      });
-      setReviewed((current) => {
-        const pruned = pruneReviewed(current, result.map((f) => f.path));
-        if (pruned !== current) {
-          saveReviewed(workspaceId, sessionId, pruned);
-        }
-        return pruned;
-      });
-      setLoading(false);
+    const result = await api.getChangedFiles(workspaceId);
+    setFiles(result);
+    setReviewed((current) => {
+      const pruned = pruneReviewed(current, result.map((f) => f.path));
+      if (pruned !== current) {
+        saveReviewed(workspaceId, sessionId, pruned);
+      }
+      return pruned;
     });
+    setLoading(false);
+    return result;
   }, [api, workspaceId, sessionId]);
+
+  const refresh = useCallback(() => {
+    void fetchFiles().then((result) => {
+      setSelectedFile((current) =>
+        current && !result.some((f) => f.path === current) ? null : current,
+      );
+    });
+  }, [fetchFiles]);
+
+  const fileListRef = useRef<HTMLDivElement | null>(null);
+  const pendingScrollPathRef = useRef<string | null>(null);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      async selectFile(path: string) {
+        await fetchFiles();
+        pendingScrollPathRef.current = path;
+        setSelectedFile(path);
+      },
+    }),
+    [fetchFiles],
+  );
+
+  useEffect(() => {
+    const target = pendingScrollPathRef.current;
+    if (!target || target !== selectedFile) return;
+    pendingScrollPathRef.current = null;
+    const list = fileListRef.current;
+    if (!list) return;
+    const safeAttr = CSS.escape(target);
+    const row = list.querySelector<HTMLElement>(`[data-file-path="${safeAttr}"]`);
+    row?.scrollIntoView({ block: "nearest", behavior: "auto" });
+  }, [selectedFile, files]);
 
   const prevStatusRef = useRef(sessionStatus);
   useEffect(() => {
@@ -119,7 +154,7 @@ export function DiffPanel({ workspaceId, sessionId, api, sessionStatus }: DiffPa
         <div className="diff-panel__empty">No changes</div>
       ) : (
         <>
-          <div className="diff-panel__file-list">
+          <div className="diff-panel__file-list" ref={fileListRef}>
             {files.map((file) => {
               const isReviewed = reviewed.has(file.path);
               const isSelected = selectedFile === file.path;
@@ -131,7 +166,7 @@ export function DiffPanel({ workspaceId, sessionId, api, sessionStatus }: DiffPa
                 .filter(Boolean)
                 .join(" ");
               return (
-                <div className={className} key={file.path}>
+                <div className={className} key={file.path} data-file-path={file.path}>
                   <input
                     aria-label={`Mark ${file.path} reviewed`}
                     className="diff-panel__reviewed-checkbox"
@@ -170,4 +205,4 @@ export function DiffPanel({ workspaceId, sessionId, api, sessionStatus }: DiffPa
       )}
     </aside>
   );
-}
+});

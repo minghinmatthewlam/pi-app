@@ -9,10 +9,12 @@ export function TimelineItem({
   item,
   expandedToolCallIds,
   onToggleToolCall,
+  onViewFileInDiff,
 }: {
   readonly item: TranscriptMessage;
   readonly expandedToolCallIds?: ReadonlySet<string>;
   readonly onToggleToolCall?: (callId: string) => void;
+  readonly onViewFileInDiff?: (path: string) => void;
 }) {
   switch (item.kind) {
     case "message":
@@ -25,6 +27,7 @@ export function TimelineItem({
           item={item}
           expanded={expandedToolCallIds?.has(item.callId) ?? false}
           onToggle={onToggleToolCall}
+          onViewFileInDiff={onViewFileInDiff}
         />
       );
     case "summary":
@@ -102,10 +105,12 @@ function TimelineToolCallItem({
   item,
   expanded,
   onToggle,
+  onViewFileInDiff,
 }: {
   readonly item: TimelineToolCall;
   readonly expanded: boolean;
   readonly onToggle?: (callId: string) => void;
+  readonly onViewFileInDiff?: (path: string) => void;
 }) {
   const hasContent = item.input !== undefined || item.output !== undefined;
   const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
