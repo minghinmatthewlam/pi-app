@@ -79,6 +79,7 @@
     "brace-expansion": "^5.0.2",
     "chalk": "^5.5.0",
     "glob": "^13.0.1",
+    "highlight.js": "^11.11.1",
     "hosted-git-info": "^9.0.2",
     "lru-cache": "^11.1.0",
     "minimatch": "^10.2.3",
