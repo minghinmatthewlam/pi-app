@@ -1,5 +1,6 @@
-import { useCallback, useLayoutEffect, useRef, useState, type MutableRefObject, type RefCallback, type RefObject } from "react";
-import type { TranscriptMessage } from "./desktop-state";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefCallback, type RefObject } from "react";
+import { getSelectedSession, getSelectedWorkspace, type TranscriptMessage } from "./desktop-state";
+import { useAppSnapshot, useSelectedTranscript } from "./store";
 import { ThreadSearchBar } from "./thread-search";
 import { TimelineItem } from "./timeline-item";
 
@@ -19,8 +20,6 @@ interface ThreadSearchModel {
 }
 
 interface ConversationTimelineProps {
-  readonly transcript: readonly TranscriptMessage[];
-  readonly isTranscriptLoading: boolean;
   readonly timelinePaneRef: MutableRefObject<HTMLDivElement | null>;
   readonly timelinePaneElementRef?: RefCallback<HTMLDivElement>;
   readonly disableVirtualization?: boolean;
@@ -33,8 +32,6 @@ interface ConversationTimelineProps {
 }
 
 export function ConversationTimeline({
-  transcript,
-  isTranscriptLoading,
   timelinePaneRef,
   timelinePaneElementRef,
   disableVirtualization = false,
@@ -45,6 +42,33 @@ export function ConversationTimeline({
   onJumpToLatest,
   onContentHeightChange,
 }: ConversationTimelineProps) {
+  const selectedTranscript = useSelectedTranscript();
+  const selectedWorkspace = useAppSnapshot(
+    (state) => (state ? getSelectedWorkspace(state) ?? state.workspaces[0] : undefined),
+  );
+  const selectedSession = useAppSnapshot(
+    (state) => (state ? getSelectedSession(state) ?? getSelectedWorkspace(state)?.sessions[0] : undefined),
+  );
+  const transcript = useMemo<readonly TranscriptMessage[]>(() => {
+    if (
+      selectedTranscript &&
+      selectedWorkspace &&
+      selectedSession &&
+      selectedTranscript.workspaceId === selectedWorkspace.id &&
+      selectedTranscript.sessionId === selectedSession.id
+    ) {
+      return selectedTranscript.transcript;
+    }
+    return EMPTY_TRANSCRIPT;
+  }, [selectedTranscript, selectedWorkspace, selectedSession]);
+  const isTranscriptLoading =
+    Boolean(selectedSession) &&
+    transcript.length === 0 &&
+    (
+      !selectedTranscript ||
+      selectedTranscript.workspaceId !== selectedWorkspace?.id ||
+      selectedTranscript.sessionId !== selectedSession?.id
+    );
   // Giant prose blocks and attachment-heavy rows routinely blow past the estimator,
   // so keep those transcripts on the exact DOM path instead of restoring to a fake bottom.
   const hasUnreliableVirtualizedHeights = transcript.some(
@@ -398,3 +422,5 @@ function estimateTimelineItemHeight(item: TranscriptMessage): number {
   }
   return 38;
 }
+
+const EMPTY_TRANSCRIPT: readonly TranscriptMessage[] = [];

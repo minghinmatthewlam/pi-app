@@ -1948,8 +1948,6 @@ export default function App() {
                 </div>
 
                 <ConversationTimeline
-                  transcript={activeTranscript}
-                  isTranscriptLoading={isTranscriptLoading}
                   timelinePaneRef={timelinePaneRef}
                   timelinePaneElementRef={setTimelinePaneElement}
                   disableVirtualization={disableTimelineVirtualization}
