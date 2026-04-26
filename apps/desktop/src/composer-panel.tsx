@@ -1,6 +1,5 @@
 import { type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type RefObject, type SetStateAction } from "react";
-import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { ComposerAttachment, QueuedComposerMessage, SessionRecord } from "./desktop-state";
+import { getSelectedSession, getSelectedWorkspace, type ComposerAttachment, type QueuedComposerMessage } from "./desktop-state";
 import { ArrowUpIcon, PlusIcon, StopSquareIcon } from "./icons";
 import type {
   ComposerSlashCommand,
@@ -13,20 +12,15 @@ import { ModelOnboardingNoticeBanner } from "./model-onboarding-notice";
 import type { ModelOnboardingState, ModelOnboardingSettingsSection } from "./model-onboarding";
 import { ModelSelector } from "./model-selector";
 import type { ExtensionDockModel } from "./extension-session-ui";
+import { useAppSnapshot } from "./store";
 
 interface ComposerPanelProps {
-  readonly selectedSession: SessionRecord;
-  readonly lastError?: string;
-  readonly runtime?: RuntimeSnapshot;
   readonly activeSlashCommand?: ComposerSlashCommand;
   readonly activeSlashCommandMeta?: string;
   readonly composerDraft: string;
   readonly setComposerDraft: Dispatch<SetStateAction<string>>;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
   readonly runningLabel: string;
-  readonly attachments: readonly ComposerAttachment[];
-  readonly queuedMessages: readonly QueuedComposerMessage[];
-  readonly editingQueuedMessageId?: string;
   readonly provider: string | undefined;
   readonly modelId: string | undefined;
   readonly thinkingLevel: string | undefined;
@@ -61,21 +55,22 @@ interface ComposerPanelProps {
   readonly extensionDock?: ExtensionDockModel;
   readonly extensionDockExpanded: boolean;
   readonly onToggleExtensionDock: () => void;
+  /**
+   * Optimistic override: when the composer is mid-submit and the IPC echo
+   * hasn't returned yet, App.tsx clears attachments locally so the user sees
+   * an empty attachments tray immediately. When undefined, ComposerPanel
+   * reads attachments from the snapshot.
+   */
+  readonly attachmentsOverride?: readonly ComposerAttachment[];
 }
 
 export function ComposerPanel({
-  selectedSession,
-  lastError,
-  runtime,
   activeSlashCommand,
   activeSlashCommandMeta,
   composerDraft,
   setComposerDraft,
   composerRef,
   runningLabel,
-  attachments,
-  queuedMessages,
-  editingQueuedMessageId,
   provider,
   modelId,
   thinkingLevel,
@@ -110,7 +105,26 @@ export function ComposerPanel({
   extensionDock,
   extensionDockExpanded,
   onToggleExtensionDock,
+  attachmentsOverride,
 }: ComposerPanelProps) {
+  const selectedSession = useAppSnapshot(
+    (state) => (state ? getSelectedSession(state) ?? getSelectedWorkspace(state)?.sessions[0] : undefined),
+  );
+  const lastError = useAppSnapshot((state) => state?.lastError);
+  const runtime = useAppSnapshot((state) => {
+    if (!state) return undefined;
+    const workspace = getSelectedWorkspace(state) ?? state.workspaces[0];
+    return workspace ? state.runtimeByWorkspace[workspace.id] : undefined;
+  });
+  const snapshotAttachments = useAppSnapshot((state) => state?.composerAttachments ?? EMPTY_ATTACHMENTS);
+  const queuedMessages = useAppSnapshot((state) => state?.queuedComposerMessages ?? EMPTY_QUEUED);
+  const editingQueuedMessageId = useAppSnapshot((state) => state?.editingQueuedMessageId);
+
+  if (!selectedSession) {
+    return null;
+  }
+
+  const attachments = attachmentsOverride ?? snapshotAttachments;
   const hasComposerInput = composerDraft.trim().length > 0 || attachments.length > 0;
   const primaryActionIsStop = selectedSession.status === "running" && !hasComposerInput;
 
@@ -210,3 +224,6 @@ export function ComposerPanel({
     </footer>
   );
 }
+
+const EMPTY_ATTACHMENTS: readonly ComposerAttachment[] = [];
+const EMPTY_QUEUED: readonly QueuedComposerMessage[] = [];

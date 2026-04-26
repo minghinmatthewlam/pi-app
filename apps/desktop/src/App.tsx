@@ -1964,12 +1964,9 @@ export default function App() {
               key={selectedSessionKey}
               activeSlashCommand={slashMenu.activeSlashFlow?.command}
               activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
-              attachments={composerAttachments}
-              queuedMessages={queuedComposerMessages}
-              editingQueuedMessageId={editingQueuedMessageId}
+              attachmentsOverride={attachmentsClearedOnSubmit ? [] : undefined}
               composerDraft={composerDraft}
               composerRef={composerRef}
-              runtime={selectedModelRuntime}
               provider={resolvedSessionProvider}
               modelId={resolvedSessionModelId}
               thinkingLevel={resolvedSessionThinkingLevel}
@@ -1997,8 +1994,6 @@ export default function App() {
               }
               onSubmit={submitComposerDraft}
               runningLabel={runningLabel}
-              selectedSession={selectedSession}
-              lastError={snapshot.lastError}
               selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
               selectedSlashOption={slashMenu.selectedSlashOption}
               slashOptionEmptyState={slashMenu.slashOptionEmptyState}
