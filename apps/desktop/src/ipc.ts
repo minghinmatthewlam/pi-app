@@ -261,9 +261,21 @@ export interface PiDesktopApi {
   ): Promise<DesktopAppState>;
   setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState>;
   setIntegratedTerminalShell(shell: string): Promise<DesktopAppState>;
-  ensureTerminalPanel(workspaceId: string, size?: Partial<TerminalSize>): Promise<TerminalPanelSnapshot>;
-  createTerminalSession(workspaceId: string, size?: Partial<TerminalSize>): Promise<TerminalPanelSnapshot>;
-  setActiveTerminalSession(workspaceId: string, terminalId: string): Promise<TerminalPanelSnapshot>;
+  ensureTerminalPanel(
+    workspaceId: string,
+    terminalScopeId: string,
+    size?: Partial<TerminalSize>,
+  ): Promise<TerminalPanelSnapshot>;
+  createTerminalSession(
+    workspaceId: string,
+    terminalScopeId: string,
+    size?: Partial<TerminalSize>,
+  ): Promise<TerminalPanelSnapshot>;
+  setActiveTerminalSession(
+    workspaceId: string,
+    terminalScopeId: string,
+    terminalId: string,
+  ): Promise<TerminalPanelSnapshot>;
   writeTerminal(terminalId: string, data: string): Promise<void>;
   resizeTerminal(terminalId: string, size: TerminalSize): Promise<void>;
   restartTerminalSession(terminalId: string, size?: Partial<TerminalSize>): Promise<TerminalPanelSnapshot>;

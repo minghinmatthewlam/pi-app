@@ -14,6 +14,7 @@ const DEFAULT_TERMINAL_HEIGHT = 340;
 
 interface TerminalPanelProps {
   readonly workspace: WorkspaceRecord;
+  readonly sessionId: string;
   readonly height: number;
   readonly isTakeover: boolean;
   readonly onHeightChange: (height: number) => void;
@@ -23,6 +24,7 @@ interface TerminalPanelProps {
 
 export function TerminalPanel({
   workspace,
+  sessionId,
   height,
   isTakeover,
   onHeightChange,
@@ -50,13 +52,13 @@ export function TerminalPanel({
       return;
     }
     try {
-      const nextPanel = await api.ensureTerminalPanel(workspace.id, lastSizeRef.current);
+      const nextPanel = await api.ensureTerminalPanel(workspace.id, sessionId, lastSizeRef.current);
       setPanel(nextPanel);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [api, workspace.id]);
+  }, [api, sessionId, workspace.id]);
 
   useEffect(() => {
     setPanel(null);
@@ -68,17 +70,17 @@ export function TerminalPanel({
     if (!api) {
       return;
     }
-    const nextPanel = await api.createTerminalSession(workspace.id, lastSizeRef.current);
+    const nextPanel = await api.createTerminalSession(workspace.id, sessionId, lastSizeRef.current);
     setPanel(nextPanel);
-  }, [api, workspace.id]);
+  }, [api, sessionId, workspace.id]);
 
   const setActiveTerminal = useCallback(async (terminalId: string) => {
     if (!api) {
       return;
     }
-    const nextPanel = await api.setActiveTerminalSession(workspace.id, terminalId);
+    const nextPanel = await api.setActiveTerminalSession(workspace.id, sessionId, terminalId);
     setPanel(nextPanel);
-  }, [api, workspace.id]);
+  }, [api, sessionId, workspace.id]);
 
   const closeTerminal = useCallback(async (terminalId: string) => {
     if (!api) {

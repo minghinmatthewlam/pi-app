@@ -180,12 +180,12 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.setNotificationPreferences, preferences) as Promise<DesktopAppState>,
   setIntegratedTerminalShell: (shellPath: string) =>
     ipcRenderer.invoke(desktopIpc.setIntegratedTerminalShell, shellPath) as Promise<DesktopAppState>,
-  ensureTerminalPanel: (workspaceId: string, size?: Partial<TerminalSize>) =>
-    ipcRenderer.invoke(desktopIpc.terminalEnsurePanel, workspaceId, size) as Promise<TerminalPanelSnapshot>,
-  createTerminalSession: (workspaceId: string, size?: Partial<TerminalSize>) =>
-    ipcRenderer.invoke(desktopIpc.terminalCreateSession, workspaceId, size) as Promise<TerminalPanelSnapshot>,
-  setActiveTerminalSession: (workspaceId: string, terminalId: string) =>
-    ipcRenderer.invoke(desktopIpc.terminalSetActiveSession, workspaceId, terminalId) as Promise<TerminalPanelSnapshot>,
+  ensureTerminalPanel: (workspaceId: string, terminalScopeId: string, size?: Partial<TerminalSize>) =>
+    ipcRenderer.invoke(desktopIpc.terminalEnsurePanel, workspaceId, terminalScopeId, size) as Promise<TerminalPanelSnapshot>,
+  createTerminalSession: (workspaceId: string, terminalScopeId: string, size?: Partial<TerminalSize>) =>
+    ipcRenderer.invoke(desktopIpc.terminalCreateSession, workspaceId, terminalScopeId, size) as Promise<TerminalPanelSnapshot>,
+  setActiveTerminalSession: (workspaceId: string, terminalScopeId: string, terminalId: string) =>
+    ipcRenderer.invoke(desktopIpc.terminalSetActiveSession, workspaceId, terminalScopeId, terminalId) as Promise<TerminalPanelSnapshot>,
   writeTerminal: (terminalId: string, data: string) =>
     ipcRenderer.invoke(desktopIpc.terminalWrite, terminalId, data) as Promise<void>,
   resizeTerminal: (terminalId: string, size: TerminalSize) =>

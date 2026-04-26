@@ -24,7 +24,10 @@ const MAX_TERMINAL_SESSIONS_PER_ROOT = 8;
 
 interface TerminalRoot {
   readonly rootKey: string;
+  readonly workspaceRootKey: string;
   readonly workspaceId: string;
+  readonly terminalScopeId: string;
+  readonly cwd: string;
   activeSessionId: string | undefined;
   readonly sessionIds: string[];
 }
@@ -32,6 +35,7 @@ interface TerminalRoot {
 interface TerminalSession {
   readonly id: string;
   readonly workspaceId: string;
+  readonly terminalScopeId: string;
   readonly rootKey: string;
   readonly cwd: string;
   readonly ownerWebContentsId: number;
@@ -61,8 +65,13 @@ export class TerminalService {
 
   constructor(private readonly options: TerminalServiceOptions) {}
 
-  ensurePanel(webContents: WebContents, workspaceId: string, size?: Partial<TerminalSize>): TerminalPanelSnapshot {
-    const root = this.ensureRoot(workspaceId);
+  ensurePanel(
+    webContents: WebContents,
+    workspaceId: string,
+    terminalScopeId: string,
+    size?: Partial<TerminalSize>,
+  ): TerminalPanelSnapshot {
+    const root = this.ensureRoot(workspaceId, terminalScopeId);
     if (!root.activeSessionId || root.sessionIds.length === 0) {
       const session = this.createSessionForRoot(webContents, root, size);
       root.sessionIds.push(session.id);
@@ -71,8 +80,13 @@ export class TerminalService {
     return this.snapshotRoot(root);
   }
 
-  createSession(webContents: WebContents, workspaceId: string, size?: Partial<TerminalSize>): TerminalPanelSnapshot {
-    const root = this.ensureRoot(workspaceId);
+  createSession(
+    webContents: WebContents,
+    workspaceId: string,
+    terminalScopeId: string,
+    size?: Partial<TerminalSize>,
+  ): TerminalPanelSnapshot {
+    const root = this.ensureRoot(workspaceId, terminalScopeId);
     if (root.sessionIds.length >= MAX_TERMINAL_SESSIONS_PER_ROOT) {
       throw new Error(`A workspace can have up to ${MAX_TERMINAL_SESSIONS_PER_ROOT} terminal tabs.`);
     }
@@ -82,10 +96,15 @@ export class TerminalService {
     return this.snapshotRoot(root);
   }
 
-  setActiveSession(webContents: WebContents, workspaceId: string, terminalId: string): TerminalPanelSnapshot {
+  setActiveSession(
+    webContents: WebContents,
+    workspaceId: string,
+    terminalScopeId: string,
+    terminalId: string,
+  ): TerminalPanelSnapshot {
     const session = this.requireOwnedSession(webContents, terminalId);
-    if (session.workspaceId !== workspaceId) {
-      throw new Error(`Terminal session ${terminalId} does not belong to workspace ${workspaceId}`);
+    if (session.workspaceId !== workspaceId || session.terminalScopeId !== terminalScopeId) {
+      throw new Error(`Terminal session ${terminalId} does not belong to this thread`);
     }
     const root = this.requireRoot(session.rootKey);
     if (!root.sessionIds.includes(terminalId)) {
@@ -157,7 +176,7 @@ export class TerminalService {
   retainWorkspacePaths(workspacePaths: readonly string[]): void {
     const retained = new Set(workspacePaths.map((workspacePath) => normalizeRootKey(workspacePath)));
     for (const [rootKey, root] of this.rootsByKey) {
-      if (!retained.has(rootKey)) {
+      if (!retained.has(root.workspaceRootKey)) {
         for (const sessionId of root.sessionIds) {
           const session = this.sessionsById.get(sessionId);
           if (session) {
@@ -178,20 +197,28 @@ export class TerminalService {
     this.rootsByKey.clear();
   }
 
-  private ensureRoot(workspaceId: string): TerminalRoot {
+  private ensureRoot(workspaceId: string, terminalScopeId: string): TerminalRoot {
+    const normalizedScopeId = terminalScopeId.trim();
+    if (!normalizedScopeId) {
+      throw new Error("Terminal scope is required");
+    }
     const workspacePath = this.options.getWorkspacePath(workspaceId);
     if (!workspacePath) {
       throw new Error(`Unknown workspace: ${workspaceId}`);
     }
     ensureDirectory(workspacePath);
-    const rootKey = normalizeRootKey(workspacePath);
+    const workspaceRootKey = normalizeRootKey(workspacePath);
+    const rootKey = `${workspaceRootKey}\0${normalizedScopeId}`;
     const existingRoot = this.rootsByKey.get(rootKey);
     if (existingRoot) {
       return existingRoot;
     }
     const root: TerminalRoot = {
       rootKey,
+      workspaceRootKey,
       workspaceId,
+      terminalScopeId: normalizedScopeId,
+      cwd: workspaceRootKey,
       activeSessionId: undefined,
       sessionIds: [],
     };
@@ -207,8 +234,9 @@ export class TerminalService {
     const session: TerminalSession = {
       id: `terminal-${Date.now().toString(36)}-${this.nextSessionNumber++}`,
       workspaceId: root.workspaceId,
+      terminalScopeId: root.terminalScopeId,
       rootKey: root.rootKey,
-      cwd: root.rootKey,
+      cwd: root.cwd,
       ownerWebContentsId: webContents.id,
       shell: this.resolveShell(),
       title: "",

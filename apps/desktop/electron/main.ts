@@ -572,14 +572,14 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.setIntegratedTerminalShell, (_event, shellPath: string) =>
     store.setIntegratedTerminalShell(shellPath),
   );
-  ipcMain.handle(desktopIpc.terminalEnsurePanel, (event, workspaceId: string, size) => {
-    return getTerminalService().ensurePanel(event.sender, workspaceId, size);
+  ipcMain.handle(desktopIpc.terminalEnsurePanel, (event, workspaceId: string, terminalScopeId: string, size) => {
+    return getTerminalService().ensurePanel(event.sender, workspaceId, terminalScopeId, size);
   });
-  ipcMain.handle(desktopIpc.terminalCreateSession, (event, workspaceId: string, size) => {
-    return getTerminalService().createSession(event.sender, workspaceId, size);
+  ipcMain.handle(desktopIpc.terminalCreateSession, (event, workspaceId: string, terminalScopeId: string, size) => {
+    return getTerminalService().createSession(event.sender, workspaceId, terminalScopeId, size);
   });
-  ipcMain.handle(desktopIpc.terminalSetActiveSession, (event, workspaceId: string, terminalId: string) => {
-    return getTerminalService().setActiveSession(event.sender, workspaceId, terminalId);
+  ipcMain.handle(desktopIpc.terminalSetActiveSession, (event, workspaceId: string, terminalScopeId: string, terminalId: string) => {
+    return getTerminalService().setActiveSession(event.sender, workspaceId, terminalScopeId, terminalId);
   });
   ipcMain.handle(desktopIpc.terminalWrite, (event, terminalId: string, data: string) => {
     terminalService?.write(event.sender, terminalId, data);
