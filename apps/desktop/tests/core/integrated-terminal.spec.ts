@@ -28,8 +28,9 @@ test("opens a workspace terminal with persistent output, tabs, and takeover cont
     await createNamedThread(window, "Terminal host thread");
 
     await window.getByLabel("Toggle terminal").hover();
-    await expect(window.locator(".topbar__tooltip")).toContainText("Toggle terminal");
-    await expect(window.locator(".topbar__tooltip kbd")).toHaveText(/⌘J|Ctrl\+J/);
+    const terminalTooltip = window.locator(".topbar__tooltip", { hasText: "Toggle terminal" });
+    await expect(terminalTooltip).toContainText("Toggle terminal");
+    await expect(terminalTooltip.locator("kbd")).toHaveText(/⌘J|Ctrl\+J/);
 
     await window.getByLabel("Toggle terminal").click();
     const terminal = window.getByTestId("integrated-terminal");

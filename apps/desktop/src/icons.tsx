@@ -312,23 +312,6 @@ export function RefreshIcon() {
   );
 }
 
-export function PanelRightIcon() {
-  return (
-    <Icon>
-      <rect
-        x="3"
-        y="4"
-        width="14"
-        height="12"
-        rx="1.6"
-        stroke="currentColor"
-        strokeWidth="1.45"
-      />
-      <path d="M12.5 4v12" stroke="currentColor" strokeWidth="1.45" />
-    </Icon>
-  );
-}
-
 export function WorktreeIcon() {
   return (
     <Icon>

@@ -8,6 +8,7 @@ import { loadReviewed, pruneReviewed, saveReviewed } from "./reviewed-files-stor
 interface ChangedFile {
   readonly path: string;
   readonly status: "added" | "modified" | "deleted" | "untracked";
+  readonly staged: boolean;
 }
 
 export interface DiffPanelFileRequest {
@@ -177,8 +178,9 @@ export function DiffPanel({
                     className="diff-panel__stage-btn"
                     type="button"
                     onClick={() => handleStage(file.path)}
+                    disabled={file.staged}
                   >
-                    Stage
+                    {file.staged ? "Staged" : "Stage"}
                   </button>
                 </div>
               );

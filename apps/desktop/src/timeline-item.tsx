@@ -2,7 +2,7 @@ import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
 import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
-import { ChevronRightIcon, CopyIcon, FileIcon, PanelRightIcon } from "./icons";
+import { ChevronRightIcon, CopyIcon, DiffIcon, FileIcon } from "./icons";
 import { extensionToLanguage } from "./syntax-highlight";
 
 export function TimelineItem({
@@ -160,7 +160,7 @@ function TimelineToolCallItem({
               onViewFileInDiff(filePath);
             }}
           >
-            <PanelRightIcon />
+            <DiffIcon />
           </button>
         ) : null}
       </div>
