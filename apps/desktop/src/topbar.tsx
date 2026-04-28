@@ -49,6 +49,7 @@ export function Topbar(props: TopbarProps) {
     onToggleDiffPanel,
   } = props;
   const terminalShortcut = getDesktopShortcutLabel(api.platform, "J");
+  const diffShortcut = getDesktopShortcutLabel(api.platform, "D");
 
   const handleDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target;
@@ -147,14 +148,20 @@ export function Topbar(props: TopbarProps) {
             <kbd>{terminalShortcut}</kbd>
           </span>
         </div>
-        <button
-          aria-label="Toggle diff panel"
-          className={`icon-button topbar__icon ${showDiffPanel ? "icon-button--active" : ""}`}
-          type="button"
-          onClick={onToggleDiffPanel}
-        >
-          <DiffIcon />
-        </button>
+        <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
+          <button
+            aria-label="Toggle changes"
+            className={`icon-button topbar__icon ${showDiffPanel ? "icon-button--active" : ""}`}
+            type="button"
+            onClick={onToggleDiffPanel}
+          >
+            <DiffIcon />
+          </button>
+          <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
+            <span>Toggle changes</span>
+            <kbd>{diffShortcut}</kbd>
+          </span>
+        </div>
         <button
           aria-label="Add folder"
           className="icon-button topbar__icon"
