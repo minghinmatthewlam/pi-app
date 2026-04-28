@@ -958,8 +958,14 @@
   color: var(--muted-strong);
 }
 
-.diff-panel__stage-btn:hover {
+.diff-panel__stage-btn:hover:not(:disabled) {
   background: var(--surface-muted);
+}
+
+.diff-panel__stage-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  color: var(--muted-soft);
 }
 
 .diff-panel__viewer {

@@ -12,6 +12,7 @@ function validateFilePath(workspacePath: string, filePath: string): string {
 export interface ChangedFileEntry {
   readonly path: string;
   readonly status: "added" | "modified" | "deleted" | "untracked";
+  readonly staged: boolean;
 }
 
 export function getChangedFiles(workspacePath: string): Promise<ChangedFileEntry[]> {
@@ -40,6 +41,7 @@ export function getChangedFiles(workspacePath: string): Promise<ChangedFileEntry
           entries.push({
             path: filePath,
             status: parseStatus(xy),
+            staged: isFullyStaged(xy),
           });
         }
         resolve(entries);
@@ -119,4 +121,11 @@ function parseStatus(xy: string): ChangedFileEntry["status"] {
     return "deleted";
   }
   return "modified";
+}
+
+function isFullyStaged(xy: string): boolean {
+  const x = xy[0] ?? " ";
+  const y = xy[1] ?? " ";
+  if (x === "?" || x === " ") return false;
+  return y === " ";
 }
