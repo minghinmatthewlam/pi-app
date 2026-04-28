@@ -27,6 +27,8 @@ pnpm --filter @pi-gui/desktop dev
 
 `dev` now runs through `electron-vite`, so renderer edits hot-update in place and Electron `main` / `preload` changes trigger the appropriate reload or restart behavior automatically. The desktop dev launcher also rebuilds the shared workspace packages up front and keeps them in watch mode so Node-side package changes can be picked up without manual rebuilds.
 
+When `pnpm dev` runs inside a git worktree (not the primary checkout), the launcher auto-derives a worktree-scoped `PI_APP_USER_DATA_DIR` (`~/.pi-gui-worktrees/<hash>`) so multiple worktrees can run concurrently without colliding on Electron's singleton-instance lock or stomping on each other's `ui-state.json` / `catalogs.json` / transcripts. The primary checkout keeps the default location (shared with the installed `pi-gui.app`). Set `PI_APP_USER_DATA_DIR` explicitly to override.
+
 Run the built app locally without packaging:
 
 ```bash
