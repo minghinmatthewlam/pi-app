@@ -1268,6 +1268,11 @@ export default function App() {
   }
 
   const showTerminalTakeover = isTerminalVisibleForSelectedThread && isTerminalTakeoverForSelectedThread && Boolean(selectedWorkspace);
+  const mainClassName = [
+    "main",
+    showDiffPanel ? "main--with-diff" : "",
+    showTerminalTakeover ? "main--terminal-takeover" : "",
+  ].filter(Boolean).join(" ");
   const terminalPanel = isTerminalVisibleForSelectedThread && selectedWorkspace ? (
     <TerminalPanel
       workspace={selectedWorkspace}
@@ -2035,7 +2040,7 @@ export default function App() {
         />
       ) : null}
 
-      <main className={`main ${showDiffPanel ? "main--with-diff" : ""}`}>
+      <main className={mainClassName}>
         <Topbar
           activeView={snapshot.activeView}
           rootWorkspace={rootWorkspace}
@@ -2248,7 +2253,8 @@ export default function App() {
         )}
 
         {terminalPanel}
-
+          </>
+        )}
         {showDiffPanel && selectedWorkspace && selectedSession ? (
           <DiffPanel
             workspaceId={selectedWorkspace.id}
@@ -2258,8 +2264,6 @@ export default function App() {
             fileRequest={diffFileRequest}
           />
         ) : null}
-          </>
-        )}
       </main>
     </div>
   );

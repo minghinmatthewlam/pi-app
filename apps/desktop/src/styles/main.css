@@ -31,6 +31,14 @@
   grid-column: 1;
 }
 
+.main--with-diff > .terminal-panel {
+  grid-column: 1;
+}
+
+.main--with-diff.main--terminal-takeover {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .topbar {
   -webkit-app-region: drag;
   padding: 12px 18px 10px;
