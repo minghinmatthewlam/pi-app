@@ -27,6 +27,16 @@ declare module "@pi-gui/session-driver" {
   }
 
   export type SessionStatus = "idle" | "running" | "failed";
+  export type SessionMessageDeliveryMode = "steer" | "followUp";
+
+  export interface SessionQueuedMessage {
+    readonly id: string;
+    readonly mode: SessionMessageDeliveryMode;
+    readonly text: string;
+    readonly attachments?: readonly SessionAttachment[];
+    readonly createdAt: Timestamp;
+    readonly updatedAt: Timestamp;
+  }
 
   export interface SessionSnapshot {
     readonly ref: SessionRef;
@@ -38,6 +48,7 @@ declare module "@pi-gui/session-driver" {
     readonly preview?: string;
     readonly config?: SessionConfig;
     readonly runningRunId?: RunId;
+    readonly queuedMessages?: readonly SessionQueuedMessage[];
   }
 
   export interface SessionImageAttachment {
@@ -71,6 +82,7 @@ declare module "@pi-gui/session-driver" {
   export interface SessionMessageInput {
     readonly text: string;
     readonly attachments?: readonly SessionAttachment[];
+    readonly deliverAs?: SessionMessageDeliveryMode;
   }
 
   export interface CreateSessionOptions {
@@ -113,6 +125,11 @@ declare module "@pi-gui/session-driver" {
   export interface AssistantDeltaEvent extends SessionEventBase {
     readonly type: "assistantDelta";
     readonly text: string;
+  }
+
+  export interface QueuedMessageStartedEvent extends SessionEventBase {
+    readonly type: "queuedMessageStarted";
+    readonly message: SessionQueuedMessage;
   }
 
   export interface ToolStartedEvent extends SessionEventBase {
@@ -244,6 +261,7 @@ declare module "@pi-gui/session-driver" {
     | SessionOpenedEvent
     | SessionUpdatedEvent
     | AssistantDeltaEvent
+    | QueuedMessageStartedEvent
     | ToolStartedEvent
     | ToolUpdatedEvent
     | ToolFinishedEvent
@@ -287,6 +305,7 @@ declare module "@pi-gui/session-driver" {
     archiveSession(sessionRef: SessionRef): Promise<void>;
     unarchiveSession(sessionRef: SessionRef): Promise<void>;
     sendUserMessage(sessionRef: SessionRef, input: SessionMessageInput): Promise<void>;
+    replaceQueuedMessages(sessionRef: SessionRef, messages: readonly SessionQueuedMessage[]): Promise<void>;
     cancelCurrentRun(sessionRef: SessionRef): Promise<void>;
     setSessionModel(sessionRef: SessionRef, selection: SessionModelSelection): Promise<void>;
     setSessionThinkingLevel(sessionRef: SessionRef, thinkingLevel: string): Promise<void>;

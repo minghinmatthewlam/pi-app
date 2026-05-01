@@ -16,6 +16,51 @@ export function PlusIcon() {
   );
 }
 
+export function TerminalIcon() {
+  return (
+    <Icon>
+      <rect x="3.3" y="4.1" width="13.4" height="11.8" rx="2" stroke="currentColor" strokeWidth="1.35" />
+      <path d="m6.2 7.4 2.2 2.1-2.2 2.1M9.7 12h3.7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.35" />
+    </Icon>
+  );
+}
+
+export function SidebarToggleIcon() {
+  return (
+    <Icon>
+      <rect x="3.4" y="4.1" width="13.2" height="11.8" rx="2.2" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M7.4 4.2v11.6" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M11 8.1 8.9 10l2.1 1.9" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.35" />
+    </Icon>
+  );
+}
+
+export function MaximizeIcon() {
+  return (
+    <Icon>
+      <path d="M6.1 3.8H3.8v2.3M13.9 3.8h2.3v2.3M6.1 16.2H3.8v-2.3M13.9 16.2h2.3v-2.3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.45" />
+      <path d="M7 7h6v6H7z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.25" />
+    </Icon>
+  );
+}
+
+export function MinimizeIcon() {
+  return (
+    <Icon>
+      <path d="M3.9 7.1h3.2V3.9M16.1 7.1h-3.2V3.9M3.9 12.9h3.2v3.2M16.1 12.9h-3.2v3.2" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.45" />
+      <path d="M7.7 7.7h4.6v4.6H7.7z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.2" />
+    </Icon>
+  );
+}
+
+export function CloseIcon() {
+  return (
+    <Icon>
+      <path d="m6 6 8 8M14 6l-8 8" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+    </Icon>
+  );
+}
+
 export function ArrowUpIcon() {
   return (
     <Icon>

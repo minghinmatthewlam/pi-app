@@ -55,13 +55,13 @@ test("queues follow-ups with Enter and steers the current run with Cmd+Enter", a
     await composer.press("Enter");
     await expect(sendButton).toHaveAttribute("aria-label", "Stop run");
     await expect(window.getByTestId("queued-composer-message").filter({ hasText: "FOLLOW_UP_DONE" })).toHaveCount(1);
-    await expect(window.getByTestId("queued-composer-message").filter({ hasText: "FOLLOW_UP_DONE" })).toContainText("Queued");
+    await expect(window.locator(".queued-composer-message__mode")).toHaveCount(0);
 
     await composer.fill("Change your pending final answer for the current run to exactly STEER_DONE.");
     await expect(sendButton).toHaveAttribute("aria-label", "Send message");
     await composer.press(desktopShortcut("Enter"));
-    await expect(window.getByTestId("queued-composer-message").filter({ hasText: "STEER_DONE" })).toHaveCount(1);
-    await expect(window.getByTestId("queued-composer-messages")).toContainText("Steer");
+    await expect(window.getByTestId("queued-composer-message").filter({ hasText: "STEER_DONE" })).toHaveCount(0);
+    await expect(window.getByTestId("transcript")).toContainText("STEER_DONE");
 
     await expect(window.getByTestId("transcript")).toContainText("STEER_DONE", { timeout: 180_000 });
     await expect(window.getByTestId("transcript")).toContainText("FOLLOW_UP_DONE", { timeout: 180_000 });
@@ -73,13 +73,13 @@ test("queues follow-ups with Enter and steers the current run with Cmd+Enter", a
         const followUpIndex = messages.findIndex((message) => message.includes("FOLLOW_UP_DONE"));
         return {
           messages,
-          steerIndex,
-          followUpIndex,
+          hasSteer: steerIndex >= 0,
+          hasFollowUpAfterSteer: followUpIndex > steerIndex,
         };
       }, { timeout: 180_000 })
       .toMatchObject({
-        steerIndex: expect.any(Number),
-        followUpIndex: expect.any(Number),
+        hasSteer: true,
+        hasFollowUpAfterSteer: true,
       });
 
     const finalAssistantText = assistantMessages(await getSelectedTranscript(window)).join("\n");

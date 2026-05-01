@@ -168,10 +168,12 @@ export interface DesktopAppState {
   readonly sessionExtensionUiBySession: Readonly<Record<string, SessionExtensionUiStateRecord>>;
   readonly extensionCommandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
   readonly notificationPreferences: NotificationPreferences;
+  readonly integratedTerminalShell: string;
   readonly lastViewedAtBySession: Readonly<Record<string, string>>;
   readonly workspaceOrder: readonly string[];
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly globalModelSettings: ModelSettingsSnapshot;
+  readonly sidebarCollapsed: boolean;
   readonly revision: number;
   readonly lastError?: string;
 }
@@ -207,12 +209,14 @@ export function createEmptyDesktopAppState(): DesktopAppState {
       backgroundFailure: true,
       attentionNeeded: true,
     },
+    integratedTerminalShell: "",
     lastViewedAtBySession: {},
     workspaceOrder: [],
     modelSettingsScopeMode: "app-global",
     globalModelSettings: {
       enabledModelPatterns: [],
     },
+    sidebarCollapsed: false,
     revision: 0,
   };
 }

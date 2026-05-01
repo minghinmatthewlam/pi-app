@@ -11,7 +11,7 @@ import { dirname } from "node:path";
 
 const uiStateWriteQueueByPath = new Map<string, Promise<void>>();
 export interface PersistedUiState {
-  readonly version?: 2 | 3 | 4 | 5 | 6 | 7;
+  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   readonly selectedWorkspaceId?: string;
   readonly selectedSessionId?: string;
   readonly activeView?: AppView;
@@ -19,10 +19,12 @@ export interface PersistedUiState {
   readonly composerDraftsBySession?: Record<string, string>;
   readonly extensionCommandCompatibilityByWorkspace?: Record<string, readonly ExtensionCommandCompatibilityRecord[]>;
   readonly notificationPreferences?: NotificationPreferences;
+  readonly integratedTerminalShell?: string;
   readonly lastViewedAtBySession?: Record<string, string>;
   readonly workspaceOrder?: readonly string[];
   readonly modelSettingsScopeMode?: ModelSettingsScopeMode;
   readonly appGlobalModelSettings?: ModelSettingsSnapshot;
+  readonly sidebarCollapsed?: boolean;
 }
 
 export interface LegacyPersistedUiState extends PersistedUiState {
@@ -36,19 +38,23 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
     const parsed = JSON.parse(raw) as LegacyPersistedUiState;
     return {
       version:
-        parsed.version === 6
-          ? 6
-          : parsed.version === 7
+        parsed.version === 9
+          ? 9
+          : parsed.version === 8
+            ? 8
+            : parsed.version === 7
             ? 7
-          : parsed.version === 5
-            ? 5
-            : parsed.version === 4
-              ? 4
-              : parsed.version === 3
-                ? 3
-                : parsed.version === 2
-                  ? 2
-                  : undefined,
+            : parsed.version === 6
+              ? 6
+              : parsed.version === 5
+                ? 5
+                : parsed.version === 4
+                  ? 4
+                  : parsed.version === 3
+                    ? 3
+                    : parsed.version === 2
+                      ? 2
+                      : undefined,
       selectedWorkspaceId: parsed.selectedWorkspaceId,
       selectedSessionId: parsed.selectedSessionId,
       activeView: parsed.activeView,
@@ -56,6 +62,8 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
       composerDraftsBySession: parsed.composerDraftsBySession,
       extensionCommandCompatibilityByWorkspace: parsed.extensionCommandCompatibilityByWorkspace,
       notificationPreferences: parsed.notificationPreferences,
+      integratedTerminalShell:
+        typeof parsed.integratedTerminalShell === "string" ? parsed.integratedTerminalShell : undefined,
       lastViewedAtBySession: parsed.lastViewedAtBySession,
       workspaceOrder: Array.isArray(parsed.workspaceOrder) ? parsed.workspaceOrder : undefined,
       modelSettingsScopeMode:
@@ -63,6 +71,7 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
           ? parsed.modelSettingsScopeMode
           : undefined,
       appGlobalModelSettings: toPersistedModelSettingsSnapshot(parsed.appGlobalModelSettings),
+      sidebarCollapsed: parsed.sidebarCollapsed === true,
       composerAttachmentsBySession: parsed.composerAttachmentsBySession,
       transcripts: parsed.transcripts,
     };
@@ -79,7 +88,7 @@ export async function writePersistedUiState(
     await mkdir(dirname(uiStateFilePath), { recursive: true });
     const serialized = `${JSON.stringify(
       {
-        version: 7,
+        version: 9,
         ...payload,
       } satisfies PersistedUiState,
       null,

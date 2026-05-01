@@ -30,6 +30,7 @@ interface ConversationTimelineProps {
   readonly showJumpToLatest: boolean;
   readonly onJumpToLatest: () => void;
   readonly onContentHeightChange: () => void;
+  readonly onViewFileInDiff?: (path: string) => void;
 }
 
 export function ConversationTimeline({
@@ -44,6 +45,7 @@ export function ConversationTimeline({
   showJumpToLatest,
   onJumpToLatest,
   onContentHeightChange,
+  onViewFileInDiff,
 }: ConversationTimelineProps) {
   // Giant prose blocks and attachment-heavy rows routinely blow past the estimator,
   // so keep those transcripts on the exact DOM path instead of restoring to a fake bottom.
@@ -170,6 +172,7 @@ export function ConversationTimeline({
           expandedToolCallIds={expandedToolCallIds}
           onHeightChange={updateMeasuredHeight}
           onToggleToolCall={toggleToolCall}
+          onViewFileInDiff={onViewFileInDiff}
         />
       ) : (
         <div className="timeline" data-testid="transcript">
@@ -180,6 +183,7 @@ export function ConversationTimeline({
               onHeightChange={updateMeasuredHeight}
               expandedToolCallIds={expandedToolCallIds}
               onToggleToolCall={toggleToolCall}
+              onViewFileInDiff={onViewFileInDiff}
             />
           ))}
         </div>
@@ -202,6 +206,7 @@ function VirtualizedTranscriptList({
   expandedToolCallIds,
   onHeightChange,
   onToggleToolCall,
+  onViewFileInDiff,
 }: {
   readonly transcript: readonly TranscriptMessage[];
   readonly timelinePaneRef: MutableRefObject<HTMLDivElement | null>;
@@ -211,6 +216,7 @@ function VirtualizedTranscriptList({
   readonly expandedToolCallIds: ReadonlySet<string>;
   readonly onHeightChange: (id: string, height: number) => void;
   readonly onToggleToolCall: (callId: string) => void;
+  readonly onViewFileInDiff?: (path: string) => void;
 }) {
   const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
   const previousTotalHeightRef = useRef(0);
@@ -282,6 +288,7 @@ function VirtualizedTranscriptList({
             onHeightChange={onHeightChange}
             expandedToolCallIds={expandedToolCallIds}
             onToggleToolCall={onToggleToolCall}
+            onViewFileInDiff={onViewFileInDiff}
           />
         );
       })}
@@ -296,6 +303,7 @@ function MeasuredTimelineItem({
   onHeightChange,
   expandedToolCallIds,
   onToggleToolCall,
+  onViewFileInDiff,
 }: {
   readonly item: TranscriptMessage;
   readonly className?: string;
@@ -303,6 +311,7 @@ function MeasuredTimelineItem({
   readonly onHeightChange: (id: string, height: number) => void;
   readonly expandedToolCallIds: ReadonlySet<string>;
   readonly onToggleToolCall: (callId: string) => void;
+  readonly onViewFileInDiff?: (path: string) => void;
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null);
 
@@ -337,6 +346,7 @@ function MeasuredTimelineItem({
         item={item}
         expandedToolCallIds={expandedToolCallIds}
         onToggleToolCall={onToggleToolCall}
+        onViewFileInDiff={onViewFileInDiff}
       />
     </div>
   );

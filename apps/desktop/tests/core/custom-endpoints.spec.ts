@@ -68,6 +68,7 @@ test("settings lets the user add, edit, and delete an OpenAI-compatible custom e
       baseUrl: "http://localhost:11434/v1",
       api: "openai-completions",
       apiKey: "unused",
+      piGuiCustomEndpoint: true,
       models: [{ id: "llama3.1" }],
     });
 

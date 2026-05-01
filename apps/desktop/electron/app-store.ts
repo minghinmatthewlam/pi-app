@@ -448,6 +448,21 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.emit();
   }
 
+  async setSidebarCollapsed(sidebarCollapsed: boolean): Promise<DesktopAppState> {
+    await this.initialize();
+    if (this.state.sidebarCollapsed === sidebarCollapsed) {
+      return structuredClone(this.state);
+    }
+    this.state = {
+      ...this.state,
+      sidebarCollapsed,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
   async setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState> {
     await this.initialize();
     this.state = {
@@ -456,6 +471,22 @@ export class DesktopAppStore implements AppStoreInternals {
         ...this.state.notificationPreferences,
         ...preferences,
       },
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
+  async setIntegratedTerminalShell(integratedTerminalShell: string): Promise<DesktopAppState> {
+    await this.initialize();
+    const normalizedShell = integratedTerminalShell.trim();
+    if (this.state.integratedTerminalShell === normalizedShell) {
+      return this.emit();
+    }
+    this.state = {
+      ...this.state,
+      integratedTerminalShell: normalizedShell,
       lastError: undefined,
       revision: this.state.revision + 1,
     };
@@ -746,8 +777,10 @@ export class DesktopAppStore implements AppStoreInternals {
           ...this.state.notificationPreferences,
           ...persisted.notificationPreferences,
         },
+        integratedTerminalShell: persisted.integratedTerminalShell ?? this.state.integratedTerminalShell,
         lastViewedAtBySession: persisted.lastViewedAtBySession ?? {},
         workspaceOrder: persisted.workspaceOrder ?? [],
+        sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
       };
       await this.migrateLegacyPersistence(persisted);
       this.sessionState.lastViewedAtBySession.clear();
@@ -792,9 +825,10 @@ export class DesktopAppStore implements AppStoreInternals {
         composerDraft: persisted.composerDraft,
         clearLastError: true,
         refreshWorktrees: true,
+        markSelectedSessionViewed: false,
         hydrateSelectedSession: false,
       });
-      this.startSelectedSessionHydration(this.selectedSessionRef());
+      this.startSelectedSessionHydration(this.selectedSessionRef(), { markViewed: false });
     } catch (error) {
       this.state = {
         ...createEmptyDesktopAppState(),
@@ -1685,10 +1719,12 @@ export class DesktopAppStore implements AppStoreInternals {
       composerDraftsBySession: mapToRecord(this.sessionState.composerDraftsBySession),
       extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
       notificationPreferences: this.state.notificationPreferences,
+      integratedTerminalShell: this.state.integratedTerminalShell || undefined,
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
       workspaceOrder: this.state.workspaceOrder.length > 0 ? this.state.workspaceOrder : undefined,
       modelSettingsScopeMode: this.state.modelSettingsScopeMode,
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
+      sidebarCollapsed: this.state.sidebarCollapsed || undefined,
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);
@@ -1895,7 +1931,11 @@ export class DesktopAppStore implements AppStoreInternals {
     return snapshot;
   }
 
-  private async hydrateSelectedSessionAfterSelection(sessionRef: SessionRef, selectionEpoch: number): Promise<void> {
+  private async hydrateSelectedSessionAfterSelection(
+    sessionRef: SessionRef,
+    selectionEpoch: number,
+    options: { readonly markViewed: boolean } = { markViewed: true },
+  ): Promise<void> {
     const runtimeMissing = !this.runtimeByWorkspace.has(sessionRef.workspaceId);
     const [snapshot] = await Promise.all([
       this.ensureSessionReady(sessionRef),
@@ -1914,19 +1954,24 @@ export class DesktopAppStore implements AppStoreInternals {
 
     this.clearSessionError(sessionRef);
     this.state = this.syncSelectedSessionHydrationState(this.state, sessionRef, snapshot, runtimeByWorkspace);
-    this.markSessionViewed(sessionRef);
+    if (options.markViewed) {
+      this.markSessionViewed(sessionRef);
+    }
     this.schedulePersistUiState();
     this.emit();
     this.publishSelectedTranscriptFor(sessionRef);
   }
 
-  private startSelectedSessionHydration(sessionRef: SessionRef | undefined): void {
+  private startSelectedSessionHydration(
+    sessionRef: SessionRef | undefined,
+    options: { readonly markViewed: boolean } = { markViewed: true },
+  ): void {
     if (!sessionRef) {
       return;
     }
 
     const selectionEpoch = ++this.selectionEpoch;
-    void this.hydrateSelectedSessionAfterSelection(sessionRef, selectionEpoch).catch((error: unknown) => {
+    void this.hydrateSelectedSessionAfterSelection(sessionRef, selectionEpoch, options).catch((error: unknown) => {
       void this.handleSelectedSessionHydrationError(sessionRef, selectionEpoch, error);
     });
   }
@@ -2112,10 +2157,11 @@ export class DesktopAppStore implements AppStoreInternals {
 
     return this.sessionState.queuedComposerMessagesBySession.get(
       sessionKey({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId }),
-    )?.map((message) => ({
-      ...message,
-      attachments: cloneComposerAttachments(message.attachments),
-    })) ?? [];
+    )?.filter((message) => message.mode === "followUp")
+      .map((message) => ({
+        ...message,
+        attachments: cloneComposerAttachments(message.attachments),
+      })) ?? [];
   }
 
   private resolveEditingQueuedMessageId(

@@ -57,6 +57,140 @@ async function expectRowVisibleAboveComposer(window: Page, row: Locator, compose
   }).toBeGreaterThanOrEqual(-1);
 }
 
+interface TimelineStabilitySample {
+  readonly virtualized: boolean;
+  readonly visibleItemCount: number;
+  readonly renderedTextLength: number;
+  readonly remainingFromBottom: number;
+  readonly sentinelVisible: boolean;
+}
+
+async function sampleTimelineStability(window: Page, sentinelRow: Locator): Promise<TimelineStabilitySample> {
+  const [rowBox, paneBox, renderMetrics, scrollMetrics] = await Promise.all([
+    sentinelRow.boundingBox(),
+    window.getByTestId("timeline-pane").boundingBox(),
+    window.evaluate(() => {
+      const transcript = document.querySelector<HTMLElement>("[data-testid='transcript']");
+      return {
+        virtualized: Boolean(document.querySelector(".timeline--virtualized")),
+        visibleItemCount: document.querySelectorAll(".timeline-item").length,
+        renderedTextLength: (transcript?.textContent ?? "").trim().length,
+      };
+    }),
+    getTimelineScrollMetrics(window),
+  ]);
+
+  const sentinelVisible = Boolean(
+    rowBox &&
+      paneBox &&
+      rowBox.y >= paneBox.y - 1 &&
+      rowBox.y + rowBox.height <= paneBox.y + paneBox.height + 1,
+  );
+
+  return {
+    ...renderMetrics,
+    remainingFromBottom: scrollMetrics.remainingFromBottom,
+    sentinelVisible,
+  };
+}
+
+async function sampleTimelineCollapseWindow(
+  window: Page,
+  frameCount = 24,
+): Promise<Pick<TimelineStabilitySample, "visibleItemCount" | "renderedTextLength">> {
+  return window.evaluate(async (targetFrameCount) => {
+    const samples: Array<{ visibleItemCount: number; renderedTextLength: number }> = [];
+    await new Promise<void>((resolve) => {
+      let remainingFrames = targetFrameCount;
+      const captureFrame = () => {
+        const transcript = document.querySelector<HTMLElement>("[data-testid='transcript']");
+        samples.push({
+          visibleItemCount: document.querySelectorAll(".timeline-item").length,
+          renderedTextLength: (transcript?.textContent ?? "").trim().length,
+        });
+        remainingFrames -= 1;
+        if (remainingFrames <= 0) {
+          resolve();
+          return;
+        }
+        window.requestAnimationFrame(captureFrame);
+      };
+
+      window.requestAnimationFrame(captureFrame);
+    });
+
+    return samples.reduce(
+      (minimums, sample) => ({
+        visibleItemCount: Math.min(minimums.visibleItemCount, sample.visibleItemCount),
+        renderedTextLength: Math.min(minimums.renderedTextLength, sample.renderedTextLength),
+      }),
+      {
+        visibleItemCount: Number.POSITIVE_INFINITY,
+        renderedTextLength: Number.POSITIVE_INFINITY,
+      },
+    );
+  }, frameCount);
+}
+
+async function waitForStableVirtualizedBottom(
+  window: Page,
+  sentinelRow: Locator,
+): Promise<Pick<TimelineStabilitySample, "visibleItemCount" | "renderedTextLength">> {
+  let consecutiveStableSamples = 0;
+  let baselineSample: TimelineStabilitySample | null = null;
+
+  for (let index = 0; index < 150; index += 1) {
+    const sample = await sampleTimelineStability(window, sentinelRow);
+    if (sample.virtualized && sample.remainingFromBottom <= 16 && sample.sentinelVisible) {
+      consecutiveStableSamples += 1;
+      baselineSample = sample;
+      if (consecutiveStableSamples >= 5 && baselineSample) {
+        return {
+          visibleItemCount: baselineSample.visibleItemCount,
+          renderedTextLength: baselineSample.renderedTextLength,
+        };
+      }
+    } else {
+      consecutiveStableSamples = 0;
+      baselineSample = null;
+    }
+    await window.waitForTimeout(100);
+  }
+
+  throw new Error("Timeline never reached a stable virtualized bottom state.");
+}
+
+async function expectStableTimelineWindow(
+  window: Page,
+  sentinelRow: Locator,
+  baseline: Pick<TimelineStabilitySample, "visibleItemCount" | "renderedTextLength">,
+): Promise<void> {
+  const minimumVisibleItems = Math.max(1, Math.floor(baseline.visibleItemCount * 0.6));
+  const minimumRenderedTextLength = Math.max(1, Math.floor(baseline.renderedTextLength * 0.6));
+
+  for (let index = 0; index < 8; index += 1) {
+    const sample = await sampleTimelineStability(window, sentinelRow);
+    expect(sample.virtualized).toBe(true);
+    expect(sample.sentinelVisible).toBe(true);
+    expect(sample.remainingFromBottom).toBeLessThanOrEqual(16);
+    expect(sample.visibleItemCount).toBeGreaterThanOrEqual(minimumVisibleItems);
+    expect(sample.renderedTextLength).toBeGreaterThanOrEqual(minimumRenderedTextLength);
+    await window.waitForTimeout(100);
+  }
+}
+
+async function expectNoTimelineCollapseWindow(
+  window: Page,
+  baseline: Pick<TimelineStabilitySample, "visibleItemCount" | "renderedTextLength">,
+): Promise<void> {
+  const minimumVisibleItems = Math.max(1, Math.floor(baseline.visibleItemCount * 0.6));
+  const minimumRenderedTextLength = Math.max(1, Math.floor(baseline.renderedTextLength * 0.6));
+
+  const sample = await sampleTimelineCollapseWindow(window);
+  expect(sample.visibleItemCount).toBeGreaterThanOrEqual(minimumVisibleItems);
+  expect(sample.renderedTextLength).toBeGreaterThanOrEqual(minimumRenderedTextLength);
+}
+
 async function setDesktopActiveView(window: Page, view: "threads" | "settings"): Promise<void> {
   await window.evaluate(async (nextView) => {
     const app = window.piApp;
@@ -270,6 +404,103 @@ test("restores the true bottom when reopening a virtualized thread with oversize
     const finalRow = window.locator(".timeline-item--assistant", { hasText: finalMarker });
     await expect(finalRow).toBeVisible();
     await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("keeps a virtualized thread off-bottom after switching sessions", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-pinning-virtualized-mid-history-reopen");
+  let harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    let window = await harness.firstWindow();
+    const targetTitle = "Virtualized mid-history restore target";
+    await createTimelineSession(window, targetTitle);
+
+    const finalMarker = "VIRTUALIZED_MIDDLE_RESTORE_FINAL_ROW";
+    await seedTranscriptMessages(harness, window, {
+      count: 110,
+      textFactory: (index) => {
+        if (index === 109) {
+          return `${finalMarker} ${"should stay offscreen when reopening mid-history ".repeat(6)}`;
+        }
+        return `Virtualized mid-history row ${index} `.repeat(8);
+      },
+    });
+
+    await scrollTimelineAwayFromBottom(window, 1_600);
+    const preReopenMetrics = await getTimelineScrollMetrics(window);
+    expect(preReopenMetrics.remainingFromBottom).toBeGreaterThan(500);
+
+    await createTimelineSession(window, "Neighbor session");
+    await expect(window.locator(".topbar__session")).toHaveText("Neighbor session");
+
+    await selectSession(window, targetTitle);
+    await expect(window.locator(".topbar__session")).toHaveText(targetTitle);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeGreaterThan(500);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("keeps a reopened virtualized long transcript stable", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-pinning-virtualized-stable-reopen");
+  let harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    let window = await harness.firstWindow();
+    const targetTitle = "Virtualized stable reopen target";
+    await createTimelineSession(window, targetTitle);
+
+    const finalMarker = "VIRTUALIZED_STABLE_FINAL_ROW";
+    await seedTranscriptMessages(harness, window, {
+      count: 110,
+      textFactory: (index) =>
+        index === 109
+          ? `${finalMarker} ${"should remain visible after reopen ".repeat(6)}`
+          : `Virtualized stable row ${index} `.repeat(8),
+    });
+    const finalRow = window.locator(".timeline-item--assistant", { hasText: finalMarker });
+    const preReopenBaseline = await waitForStableVirtualizedBottom(window, finalRow);
+
+    await harness.close();
+
+    harness = await launchDesktop(userDataDir, { testMode: "background" });
+    window = await harness.firstWindow();
+    await expect(window.locator(".topbar__session")).toHaveText(targetTitle);
+    const reopenedFinalRow = window.locator(".timeline-item--assistant", { hasText: finalMarker });
+
+    await expectNoTimelineCollapseWindow(window, preReopenBaseline);
+    const baseline = await waitForStableVirtualizedBottom(window, reopenedFinalRow);
+    await expectStableTimelineWindow(window, reopenedFinalRow, baseline);
+
+    const composer = window.getByTestId("composer");
+    await composer.fill(multilineDraft);
+    await expect(composer).toHaveValue(multilineDraft);
+    await expectNoTimelineCollapseWindow(window, baseline);
+    const postComposerBaseline = await waitForStableVirtualizedBottom(window, reopenedFinalRow);
+    await expectStableTimelineWindow(window, reopenedFinalRow, postComposerBaseline);
+
+    const pinnedStream = await streamAssistantDeltas(harness, window, [
+      "VIRTUALIZED_REOPEN_STREAM_A ",
+      "VIRTUALIZED_REOPEN_STREAM_B ",
+      "VIRTUALIZED_REOPEN_STREAM_C",
+    ]);
+    const streamedRow = window.locator(".timeline-item--assistant", { hasText: pinnedStream.fullText });
+    await expect(streamedRow).toBeVisible();
+    const streamedBaseline = await waitForStableVirtualizedBottom(window, streamedRow);
+    await expectStableTimelineWindow(window, streamedRow, streamedBaseline);
   } finally {
     await harness.close();
   }

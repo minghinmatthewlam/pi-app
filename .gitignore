@@ -5,6 +5,7 @@ dist/
 build/
 out/
 release/
+release-*/
 playwright-report/
 test-results/
 .claude/worktrees/

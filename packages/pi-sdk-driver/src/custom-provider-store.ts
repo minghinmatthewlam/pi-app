@@ -5,6 +5,7 @@ import {
   CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
   isValidHttpBaseUrl,
   OPENAI_COMPLETIONS_API,
+  PI_GUI_CUSTOM_PROVIDER_MARKER,
   type CustomProviderEntry,
   type CustomProviderInput,
   type CustomProviderModelInput,
@@ -16,6 +17,7 @@ export {
   CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
   isValidHttpBaseUrl,
   OPENAI_COMPLETIONS_API,
+  PI_GUI_CUSTOM_PROVIDER_MARKER,
 } from "./custom-provider-types.js";
 
 export class CustomProviderStore {
@@ -35,6 +37,12 @@ export class CustomProviderStore {
     await this.enqueue(async () => {
       const data = await readModelsJson(this.modelsJsonPath);
       const providers = ensureProvidersRecord(data);
+      const existing = providers[input.providerId];
+      if (existing && typeof existing === "object" && !isPiGuiCustomProviderConfig(existing as Record<string, unknown>)) {
+        throw new Error(
+          `Provider ID "${input.providerId}" already exists in models.json and is not managed by pi-gui.`,
+        );
+      }
       providers[input.providerId] = toProviderConfig(input);
       await atomicWriteJson(this.modelsJsonPath, data);
     });
@@ -45,6 +53,10 @@ export class CustomProviderStore {
       const data = await readModelsJson(this.modelsJsonPath);
       const providers = data.providers;
       if (!providers || typeof providers !== "object" || !(providerId in providers)) {
+        return false;
+      }
+      const existing = (providers as Record<string, unknown>)[providerId];
+      if (!existing || typeof existing !== "object" || !isPiGuiCustomProviderConfig(existing as Record<string, unknown>)) {
         return false;
       }
       delete (providers as Record<string, unknown>)[providerId];
@@ -88,6 +100,7 @@ function toProviderConfig(input: CustomProviderInput): Record<string, unknown> {
     baseUrl: input.baseUrl,
     api: OPENAI_COMPLETIONS_API,
     apiKey: trimmedKey ? trimmedKey : CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
+    [PI_GUI_CUSTOM_PROVIDER_MARKER]: true,
     models: input.models.map((model) => {
       const entry: Record<string, unknown> = { id: model.id };
       if (model.contextWindow !== undefined) {
@@ -109,6 +122,9 @@ function readCustomProviders(data: Record<string, unknown>): readonly CustomProv
       continue;
     }
     const config = rawConfig as Record<string, unknown>;
+    if (!isPiGuiCustomProviderConfig(config)) {
+      continue;
+    }
     const baseUrl = typeof config.baseUrl === "string" ? config.baseUrl : undefined;
     if (!baseUrl) {
       continue;
@@ -142,6 +158,10 @@ function readCustomProviders(data: Record<string, unknown>): readonly CustomProv
   }
   entries.sort((left, right) => left.providerId.localeCompare(right.providerId));
   return entries;
+}
+
+function isPiGuiCustomProviderConfig(config: Record<string, unknown>): boolean {
+  return config[PI_GUI_CUSTOM_PROVIDER_MARKER] === true;
 }
 
 function ensureProvidersRecord(data: Record<string, unknown>): Record<string, unknown> {

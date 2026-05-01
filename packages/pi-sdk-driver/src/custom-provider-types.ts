@@ -21,6 +21,7 @@ export const CUSTOM_PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const OPENAI_COMPLETIONS_API = "openai-completions";
 
 export const CUSTOM_PROVIDER_PLACEHOLDER_API_KEY = "unused";
+export const PI_GUI_CUSTOM_PROVIDER_MARKER = "piGuiCustomEndpoint";
 
 export function isValidHttpBaseUrl(value: string): boolean {
   try {

@@ -163,6 +163,16 @@ test("settings keeps models.json provider overrides in the external-config state
     });
     await expect(openAiRow).toContainText("Configured externally");
     await expect(openAiRow.locator(".settings-row__control")).toHaveCount(0);
+
+    const customEndpoints = window.locator(".settings-section", {
+      has: window.locator(".settings-section__title", { hasText: "Custom endpoints" }),
+    });
+    await expect(customEndpoints).toContainText("No custom endpoints yet.");
+    await expect(
+      customEndpoints.locator(".settings-row", {
+        has: window.locator(".settings-row__title", { hasText: /^openai$/ }),
+      }),
+    ).toHaveCount(0);
   } finally {
     await harness.close();
   }

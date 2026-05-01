@@ -1,6 +1,6 @@
 # pi-gui
 
-Electron desktop shell for `pi` sessions.
+Electron desktop shell for `pi` sessions. Built for local agent workflows.
 
 This repo packages a desktop UI around `@mariozechner/pi-coding-agent`. It is not a standalone coding agent runtime. The app depends on the upstream `pi` package for session management, model/auth setup, and agent execution.
 

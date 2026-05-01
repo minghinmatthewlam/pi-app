@@ -444,6 +444,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     const oauthProviders = new Map(this.authStorage.getOAuthProviders().map((provider) => [provider.id, provider]));
     const providerIds = new Set<string>([
       ...this.modelRegistry.getAll().map((model) => model.provider),
+      ...getModelConfigProviderIds(this.modelRegistry),
       ...oauthProviders.keys(),
       ...this.authStorage.list(),
     ]);
@@ -454,7 +455,8 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
         const auth = this.authStorage.get(providerId);
         const oauthProvider = oauthProviders.get(providerId);
         const apiKeySetupSupported = providerSupportsDesktopApiKeySetup(providerId);
-        const hasAuth = this.authStorage.hasAuth(providerId);
+        const hasModelConfigAuth = providerHasModelConfigAuth(this.modelRegistry, providerId);
+        const hasAuth = this.authStorage.hasAuth(providerId) || hasModelConfigAuth;
         return {
           id: providerId,
           name: oauthProvider?.name ?? providerId,
@@ -464,7 +466,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
             auth,
             hasAuth,
             apiKeySetupSupported,
-            providerHasModelConfigApiKey(this.modelRegistry, providerId),
+            hasModelConfigAuth,
           ),
           oauthSupported: Boolean(oauthProvider),
           apiKeySetupSupported,
@@ -855,7 +857,7 @@ function inferProviderAuthSource(
   auth: { readonly type: "oauth" | "api_key" } | undefined,
   hasAuth: boolean,
   apiKeySetupSupported: boolean,
-  hasModelConfigApiKey: boolean,
+  hasModelConfigAuth: boolean,
 ): "none" | "oauth" | "auth_file" | "env" | "external" {
   if (auth?.type === "oauth") {
     return "oauth";
@@ -866,17 +868,37 @@ function inferProviderAuthSource(
   if (!hasAuth) {
     return "none";
   }
-  if (hasModelConfigApiKey) {
+  if (hasModelConfigAuth) {
     return "external";
   }
   return apiKeySetupSupported ? "env" : "external";
 }
 
-function providerHasModelConfigApiKey(modelRegistry: ModelRegistry, providerId: string): boolean {
-  const customProviderApiKeys = (
-    modelRegistry as unknown as { customProviderApiKeys?: ReadonlyMap<string, unknown> }
-  ).customProviderApiKeys;
-  return customProviderApiKeys?.has(providerId) ?? false;
+type ModelProviderRequestConfig = {
+  readonly apiKey?: unknown;
+  readonly headers?: unknown;
+  readonly authHeader?: unknown;
+};
+
+function getModelProviderRequestConfigs(
+  modelRegistry: ModelRegistry,
+): ReadonlyMap<string, ModelProviderRequestConfig> | undefined {
+  return (
+    modelRegistry as unknown as {
+      providerRequestConfigs?: ReadonlyMap<string, ModelProviderRequestConfig>;
+    }
+  ).providerRequestConfigs;
+}
+
+function getModelConfigProviderIds(modelRegistry: ModelRegistry): readonly string[] {
+  return [...(getModelProviderRequestConfigs(modelRegistry)?.keys() ?? [])];
+}
+
+function providerHasModelConfigAuth(modelRegistry: ModelRegistry, providerId: string): boolean {
+  const config = getModelProviderRequestConfigs(modelRegistry)?.get(providerId);
+  return Boolean(
+    config && (config.apiKey !== undefined || config.headers !== undefined || config.authHeader !== undefined),
+  );
 }
 
 function toRuntimeSourceInfo(path: string, metadata: PathMetadata): RuntimeSourceInfo {

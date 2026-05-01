@@ -1,7 +1,7 @@
 import type { MouseEvent as ReactMouseEvent, Dispatch, SetStateAction } from "react";
 import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
-import { DiffIcon, FolderIcon } from "./icons";
-import type { PiDesktopApi } from "./ipc";
+import { DiffIcon, FolderIcon, TerminalIcon } from "./icons";
+import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 
 interface TopbarProps {
@@ -21,6 +21,9 @@ interface TopbarProps {
     setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
     action: () => Promise<DesktopAppState>,
   ) => Promise<DesktopAppState>;
+  readonly terminalAvailable: boolean;
+  readonly terminalVisible: boolean;
+  readonly onToggleTerminal: () => void;
   readonly showDiffPanel: boolean;
   readonly onToggleDiffPanel: () => void;
 }
@@ -39,9 +42,14 @@ export function Topbar(props: TopbarProps) {
     api,
     setSnapshot,
     updateSnapshot,
+    terminalAvailable,
+    terminalVisible,
+    onToggleTerminal,
     showDiffPanel,
     onToggleDiffPanel,
   } = props;
+  const terminalShortcut = getDesktopShortcutLabel(api.platform, "J");
+  const diffShortcut = getDesktopShortcutLabel(api.platform, "D");
 
   const handleDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target;
@@ -125,14 +133,35 @@ export function Topbar(props: TopbarProps) {
       </div>
 
       <div className="topbar__actions">
-        <button
-          aria-label="Toggle diff panel"
-          className={`icon-button topbar__icon ${showDiffPanel ? "icon-button--active" : ""}`}
-          type="button"
-          onClick={onToggleDiffPanel}
-        >
-          <DiffIcon />
-        </button>
+        <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
+          <button
+            aria-label="Toggle terminal"
+            className={`icon-button topbar__icon ${terminalVisible ? "icon-button--active" : ""}`}
+            type="button"
+            disabled={!terminalAvailable}
+            onClick={onToggleTerminal}
+          >
+            <TerminalIcon />
+          </button>
+          <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
+            <span>Toggle terminal</span>
+            <kbd>{terminalShortcut}</kbd>
+          </span>
+        </div>
+        <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
+          <button
+            aria-label="Toggle changes"
+            className={`icon-button topbar__icon ${showDiffPanel ? "icon-button--active" : ""}`}
+            type="button"
+            onClick={onToggleDiffPanel}
+          >
+            <DiffIcon />
+          </button>
+          <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
+            <span>Toggle changes</span>
+            <kbd>{diffShortcut}</kbd>
+          </span>
+        </div>
         <button
           aria-label="Add folder"
           className="icon-button topbar__icon"

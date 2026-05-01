@@ -7,6 +7,11 @@ import {
   type CustomProviderProbeResult,
   type DesktopNotificationPermissionStatus,
   type PiDesktopCommand,
+  type TerminalDataEvent,
+  type TerminalErrorEvent,
+  type TerminalExitEvent,
+  type TerminalPanelSnapshot,
+  type TerminalSize,
 } from "../src/ipc";
 import type {
   NavigateSessionTreeOptions,
@@ -47,6 +52,14 @@ const devReloadMarkers = resolveDevReloadMarkers();
 
 if (devReloadMarkers) {
   contextBridge.exposeInMainWorld("__piDevReloadHost", devReloadMarkers);
+}
+
+function subscribeIpc<T>(channel: string, listener: (payload: T) => void): () => void {
+  const handler = (_event: Electron.IpcRendererEvent, payload: T) => listener(payload);
+  ipcRenderer.on(channel, handler);
+  return () => {
+    ipcRenderer.removeListener(channel, handler);
+  };
 }
 
 contextBridge.exposeInMainWorld("piApp", {
@@ -138,6 +151,8 @@ contextBridge.exposeInMainWorld("piApp", {
   cancelCurrentRun: () => ipcRenderer.invoke(desktopIpc.cancelCurrentRun) as Promise<DesktopAppState>,
   setActiveView: (view: AppView) =>
     ipcRenderer.invoke(desktopIpc.setActiveView, view) as Promise<DesktopAppState>,
+  setSidebarCollapsed: (collapsed: boolean) =>
+    ipcRenderer.invoke(desktopIpc.setSidebarCollapsed, collapsed) as Promise<DesktopAppState>,
   refreshRuntime: (workspaceId?: string) =>
     ipcRenderer.invoke(desktopIpc.refreshRuntime, workspaceId) as Promise<DesktopAppState>,
   setModelSettingsScopeMode: (mode: "app-global" | "per-repo") =>
@@ -176,6 +191,34 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.respondToHostUiRequest, workspaceId, sessionId, response) as Promise<DesktopAppState>,
   setNotificationPreferences: (preferences: Partial<NotificationPreferences>) =>
     ipcRenderer.invoke(desktopIpc.setNotificationPreferences, preferences) as Promise<DesktopAppState>,
+  setIntegratedTerminalShell: (shellPath: string) =>
+    ipcRenderer.invoke(desktopIpc.setIntegratedTerminalShell, shellPath) as Promise<DesktopAppState>,
+  ensureTerminalPanel: (workspaceId: string, terminalScopeId: string, size?: Partial<TerminalSize>) =>
+    ipcRenderer.invoke(desktopIpc.terminalEnsurePanel, workspaceId, terminalScopeId, size) as Promise<TerminalPanelSnapshot>,
+  createTerminalSession: (workspaceId: string, terminalScopeId: string, size?: Partial<TerminalSize>) =>
+    ipcRenderer.invoke(desktopIpc.terminalCreateSession, workspaceId, terminalScopeId, size) as Promise<TerminalPanelSnapshot>,
+  setActiveTerminalSession: (workspaceId: string, terminalScopeId: string, terminalId: string) =>
+    ipcRenderer.invoke(desktopIpc.terminalSetActiveSession, workspaceId, terminalScopeId, terminalId) as Promise<TerminalPanelSnapshot>,
+  writeTerminal: (terminalId: string, data: string) =>
+    ipcRenderer.invoke(desktopIpc.terminalWrite, terminalId, data) as Promise<void>,
+  resizeTerminal: (terminalId: string, size: TerminalSize) =>
+    ipcRenderer.invoke(desktopIpc.terminalResize, terminalId, size) as Promise<void>,
+  restartTerminalSession: (terminalId: string, size?: Partial<TerminalSize>) =>
+    ipcRenderer.invoke(desktopIpc.terminalRestartSession, terminalId, size) as Promise<TerminalPanelSnapshot>,
+  closeTerminalSession: (terminalId: string) =>
+    ipcRenderer.invoke(desktopIpc.terminalCloseSession, terminalId) as Promise<TerminalPanelSnapshot | null>,
+  setTerminalTitle: (terminalId: string, title: string) =>
+    ipcRenderer.invoke(desktopIpc.terminalSetTitle, terminalId, title) as Promise<void>,
+  setTerminalFocused: (focused: boolean) => {
+    ipcRenderer.send(desktopIpc.terminalSetFocused, focused);
+    return Promise.resolve();
+  },
+  onTerminalData: (listener: (event: TerminalDataEvent) => void) =>
+    subscribeIpc(desktopIpc.terminalData, listener),
+  onTerminalExit: (listener: (event: TerminalExitEvent) => void) =>
+    subscribeIpc(desktopIpc.terminalExit, listener),
+  onTerminalError: (listener: (event: TerminalErrorEvent) => void) =>
+    subscribeIpc(desktopIpc.terminalError, listener),
   getNotificationPermissionStatus: () =>
     ipcRenderer.invoke(desktopIpc.getNotificationPermissionStatus) as Promise<DesktopNotificationPermissionStatus>,
   requestNotificationPermission: () =>
@@ -217,7 +260,7 @@ contextBridge.exposeInMainWorld("piApp", {
   listWorkspaceFiles: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.listWorkspaceFiles, workspaceId) as Promise<string[]>,
   getChangedFiles: (workspaceId: string) =>
-    ipcRenderer.invoke(desktopIpc.getChangedFiles, workspaceId) as Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked" }[]>,
+    ipcRenderer.invoke(desktopIpc.getChangedFiles, workspaceId) as Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked"; staged: boolean }[]>,
   getFileDiff: (workspaceId: string, filePath: string) =>
     ipcRenderer.invoke(desktopIpc.getFileDiff, workspaceId, filePath) as Promise<string>,
   stageFile: (workspaceId: string, filePath: string) =>

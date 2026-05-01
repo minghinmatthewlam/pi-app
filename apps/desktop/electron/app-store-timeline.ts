@@ -1,5 +1,5 @@
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
-import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
+import type { SessionDriverEvent, SessionQueuedMessage, SessionRef } from "@pi-gui/session-driver";
 import type { TranscriptMessage } from "../src/desktop-state";
 import {
   formatElapsedDuration,
@@ -37,6 +37,35 @@ export function appendUserMessage(
   );
   transcriptCache.set(key, transcript);
   return transcript;
+}
+
+export function appendQueuedUserMessage(
+  transcriptCache: Map<string, TranscriptMessage[]>,
+  sessionRef: SessionRef,
+  message: SessionQueuedMessage,
+): void {
+  const key = sessionKey(sessionRef);
+  const transcript = [...(transcriptCache.get(key) ?? [])];
+  const existingIndex = transcript.findIndex((item) => item.kind === "message" && item.id === message.id);
+  const nextMessage = {
+    kind: "message" as const,
+    id: message.id,
+    role: "user" as const,
+    text: message.text,
+    createdAt: message.createdAt,
+    ...(message.attachments?.length
+      ? {
+          attachments: message.attachments.map((attachment) => ({ ...attachment })),
+        }
+      : {}),
+  };
+
+  if (existingIndex >= 0) {
+    transcript[existingIndex] = nextMessage;
+  } else {
+    transcript.push(nextMessage);
+  }
+  transcriptCache.set(key, transcript);
 }
 
 export function appendAssistantDelta(
@@ -109,6 +138,10 @@ export function applyTimelineEvent(
         transcript.push(activity);
       }
       break;
+    case "queuedMessageStarted":
+      clearActiveAssistantMessage(state.activeAssistantMessageBySession, event.sessionRef);
+      appendQueuedUserMessage(transcriptCache, event.sessionRef, event.message);
+      return;
     case "toolStarted": {
       clearActiveAssistantMessage(state.activeAssistantMessageBySession, event.sessionRef);
       const metrics = currentMetrics ?? {

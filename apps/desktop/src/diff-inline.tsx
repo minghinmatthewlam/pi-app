@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
+import { MAX_HIGHLIGHTED_LINES, highlightLine, type HighlightLine } from "./syntax-highlight";
 
 interface DiffLine {
   readonly type: "added" | "removed" | "context" | "header";
@@ -6,14 +7,25 @@ interface DiffLine {
   readonly lineNumber?: number;
 }
 
-export function InlineDiff({ diff }: { readonly diff: string }) {
+export function InlineDiff({
+  diff,
+  language,
+}: {
+  readonly diff: string;
+  readonly language?: string;
+}) {
   const lines = useMemo(() => parseDiff(diff), [diff]);
+  const highlightActive = language !== undefined && lines.length <= MAX_HIGHLIGHTED_LINES;
+
   if (lines.length === 0) {
     return null;
   }
 
   return (
-    <pre className="diff-inline">
+    <pre
+      className="diff-inline"
+      data-language={highlightActive ? language : undefined}
+    >
       {lines.map((line, index) => (
         <div className={`diff-line diff-line--${line.type}`} key={index}>
           {line.lineNumber !== undefined ? (
@@ -21,10 +33,39 @@ export function InlineDiff({ diff }: { readonly diff: string }) {
           ) : (
             <span className="diff-line__number" />
           )}
-          <span className="diff-line__content">{line.content}</span>
+          <span className="diff-line__content">
+            {highlightActive && line.type !== "header" ? (
+              <HighlightedContent content={line.content} language={language!} />
+            ) : (
+              line.content
+            )}
+          </span>
         </div>
       ))}
     </pre>
+  );
+}
+
+function HighlightedContent({
+  content,
+  language,
+}: {
+  readonly content: string;
+  readonly language: string;
+}) {
+  const tokens = useMemo(() => highlightLine(content, language), [content, language]);
+  return <>{renderTokens(tokens)}</>;
+}
+
+function renderTokens(tokens: HighlightLine): ReactNode {
+  return tokens.map((token, index) =>
+    typeof token === "string" ? (
+      token
+    ) : (
+      <span className={token.className} key={index}>
+        {renderTokens(token.children)}
+      </span>
+    ),
   );
 }
 

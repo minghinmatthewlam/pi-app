@@ -1,15 +1,27 @@
 .shell {
+  --sidebar-width: 292px;
+  --titlebar-toggle-left: 86px;
+  --titlebar-toggle-size: 30px;
+  --titlebar-toggle-main-gap: 16px;
+  --titlebar-collapsed-main-padding-left: calc(
+    var(--titlebar-toggle-left) + var(--titlebar-toggle-size) + var(--titlebar-toggle-main-gap)
+  );
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-columns: 292px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   gap: 0;
   padding: 0;
+  position: relative;
 }
 
 .shell--loading {
   grid-template-columns: 1fr;
   place-items: center;
+}
+
+.shell--sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .sidebar,

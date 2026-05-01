@@ -1297,7 +1297,16 @@ export class SessionSupervisor {
       case "message_start":
       case "message_end":
         if (event.message.role === "user") {
-          reconcileQueuedMessagesForStartedUserMessage(record, event.message, timestamp);
+          const queuedMessage = reconcileQueuedMessagesForStartedUserMessage(record, event.message, timestamp);
+          if (queuedMessage) {
+            this.updatePreviewFromMessage(record, event.message);
+            return [{
+              type: "queuedMessageStarted" as const,
+              sessionRef: record.ref,
+              timestamp,
+              message: queuedMessage,
+            }, sessionUpdatedEvent(record)];
+          }
         }
         this.updatePreviewFromMessage(record, event.message);
         return [sessionUpdatedEvent(record)];
@@ -1924,28 +1933,31 @@ function reconcileQueuedMessagesForStartedUserMessage(
   record: ManagedSessionRecord,
   message: unknown,
   timestamp: string,
-): void {
+): SessionQueuedMessage | undefined {
   if (typeof message !== "object" || message === null) {
-    return;
+    return undefined;
   }
 
   const text = messageText(message as Record<string, unknown>);
   if (!text) {
-    return;
+    return undefined;
   }
 
   const steeringIndex = record.queuedMessages.findIndex((item) => item.mode === "steer" && item.text === text);
   if (steeringIndex !== -1) {
-    record.queuedMessages.splice(steeringIndex, 1);
+    const [started] = record.queuedMessages.splice(steeringIndex, 1);
     record.updatedAt = timestamp;
-    return;
+    return started;
   }
 
   const followUpIndex = record.queuedMessages.findIndex((item) => item.mode === "followUp" && item.text === text);
   if (followUpIndex !== -1) {
-    record.queuedMessages.splice(followUpIndex, 1);
+    const [started] = record.queuedMessages.splice(followUpIndex, 1);
     record.updatedAt = timestamp;
+    return started;
   }
+
+  return undefined;
 }
 
 function sessionUpdatedEvent(record: ManagedSessionRecord): SessionDriverEvent {

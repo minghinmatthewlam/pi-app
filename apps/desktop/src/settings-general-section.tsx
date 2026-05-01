@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ModelSettingsScopeMode } from "./desktop-state";
 import { SettingsGroup, SettingsInfoRow, SettingsRow } from "./settings-utils";
@@ -5,17 +6,32 @@ import { SettingsGroup, SettingsInfoRow, SettingsRow } from "./settings-utils";
 interface SettingsGeneralSectionProps {
   readonly runtime?: RuntimeSnapshot;
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
+  readonly integratedTerminalShell: string;
   readonly onSetModelSettingsScopeMode: (mode: ModelSettingsScopeMode) => void;
+  readonly onSetIntegratedTerminalShell: (shellPath: string) => void;
   readonly onToggleSkillCommands: (enabled: boolean) => void;
 }
 
 export function SettingsGeneralSection({
   runtime,
   modelSettingsScopeMode,
+  integratedTerminalShell,
   onSetModelSettingsScopeMode,
+  onSetIntegratedTerminalShell,
   onToggleSkillCommands,
 }: SettingsGeneralSectionProps) {
   const connectedCount = runtime?.providers.filter((p) => p.hasAuth).length ?? 0;
+  const [terminalShellDraft, setTerminalShellDraft] = useState(integratedTerminalShell);
+
+  useEffect(() => {
+    setTerminalShellDraft(integratedTerminalShell);
+  }, [integratedTerminalShell]);
+
+  const commitTerminalShellDraft = () => {
+    if (terminalShellDraft !== integratedTerminalShell) {
+      onSetIntegratedTerminalShell(terminalShellDraft);
+    }
+  };
 
   return (
     <>
@@ -53,11 +69,30 @@ export function SettingsGeneralSection({
             onChange={(event) => onToggleSkillCommands(event.target.checked)}
           />
         </SettingsRow>
+        <SettingsRow title="Shell of integrated terminal" description="Leave blank to use your default login shell.">
+          <input
+            aria-label="Shell of integrated terminal"
+            className="settings-text-input"
+            placeholder="/bin/zsh"
+            spellCheck={false}
+            type="text"
+            value={terminalShellDraft}
+            onBlur={commitTerminalShellDraft}
+            onChange={(event) => setTerminalShellDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
+          />
+        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup title="Shortcuts">
         <SettingsInfoRow label="New thread" value="Cmd+Shift+O" />
         <SettingsInfoRow label="Open settings" value="Cmd+," />
+        <SettingsInfoRow label="Toggle terminal" value="Cmd+J" />
+        <SettingsInfoRow label="New terminal tab" value="Cmd+T" />
         <SettingsInfoRow label="Send message" value="Enter" />
         <SettingsInfoRow label="New line" value="Shift+Enter" />
       </SettingsGroup>
