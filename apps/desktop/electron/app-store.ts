@@ -86,6 +86,7 @@ import {
   toSessionQueuedMessages,
   toSessionRef,
 } from "./app-store-utils";
+import type { CustomProviderConfig } from "../src/ipc";
 import { resolveRepoWorkspaceId } from "../src/workspace-roots";
 import { SessionStateMap, type QueuedComposerEditState } from "./session-state-map";
 import { createEmptyExtensionUiState, serializeExtensionUiState } from "./session-state-map";
@@ -481,7 +482,7 @@ export class DesktopAppStore implements AppStoreInternals {
     await this.initialize();
     const normalizedShell = integratedTerminalShell.trim();
     if (this.state.integratedTerminalShell === normalizedShell) {
-      return this.emit();
+      return structuredClone(this.state);
     }
     this.state = {
       ...this.state,
@@ -617,6 +618,42 @@ export class DesktopAppStore implements AppStoreInternals {
     );
   }
 
+  async listCustomProviders(): Promise<readonly CustomProviderConfig[]> {
+    await this.initialize();
+    const entries = await this.driver.runtimeSupervisor.listCustomProviders();
+    return entries.map((entry) => ({
+      providerId: entry.providerId,
+      baseUrl: entry.baseUrl,
+      ...(entry.apiKey !== undefined ? { apiKey: entry.apiKey } : {}),
+      models: entry.models.map((model) => ({
+        id: model.id,
+        ...(model.contextWindow !== undefined ? { contextWindow: model.contextWindow } : {}),
+      })),
+    }));
+  }
+
+  async setCustomProvider(workspaceId: string, config: CustomProviderConfig): Promise<DesktopAppState> {
+    return this.withRuntimeUpdate(workspaceId, (ws) =>
+      this.driver.runtimeSupervisor.setCustomProvider(ws, {
+        providerId: config.providerId,
+        baseUrl: config.baseUrl,
+        ...(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
+        models: config.models.map((model) => ({
+          id: model.id,
+          ...(model.contextWindow !== undefined ? { contextWindow: model.contextWindow } : {}),
+        })),
+      }),
+      { refreshAllWorkspaces: true },
+    );
+  }
+
+  async deleteCustomProvider(workspaceId: string, providerId: string): Promise<DesktopAppState> {
+    return this.withRuntimeUpdate(workspaceId, (ws) =>
+      this.driver.runtimeSupervisor.deleteCustomProvider(ws, providerId),
+      { refreshAllWorkspaces: true },
+    );
+  }
+
   async setEnableSkillCommands(workspaceId: string, enabled: boolean): Promise<DesktopAppState> {
     return this.withRuntimeUpdate(workspaceId, (ws) =>
       this.driver.runtimeSupervisor.setEnableSkillCommands(ws, enabled),
@@ -708,6 +745,7 @@ export class DesktopAppStore implements AppStoreInternals {
     action: (ws: WorkspaceRef) => Promise<RuntimeSnapshot>,
     options?: {
       readonly reloadSessions?: boolean;
+      readonly refreshAllWorkspaces?: boolean;
     },
   ): Promise<DesktopAppState> {
     await this.initialize();
@@ -718,13 +756,68 @@ export class DesktopAppStore implements AppStoreInternals {
 
     return this.withErrorHandling(async () => {
       const snapshot = await action(ws);
-      this.runtimeByWorkspace.set(workspaceId, snapshot);
+      if (options?.refreshAllWorkspaces) {
+        await this.refreshRuntimeForAllWorkspaces(workspaceId, snapshot);
+      } else {
+        this.runtimeByWorkspace.set(workspaceId, snapshot);
+      }
       if (options?.reloadSessions) {
         this.clearExtensionUiForWorkspace(workspaceId);
         await this.reloadSessionsForWorkspace(workspaceId);
       }
-      await this.refreshSessionCommandsForWorkspace(workspaceId);
+      if (options?.refreshAllWorkspaces) {
+        await this.refreshSessionCommandsForAllWorkspaces();
+      } else {
+        await this.refreshSessionCommandsForWorkspace(workspaceId);
+      }
       return this.refreshState({ clearLastError: true });
+    });
+  }
+
+  private async refreshRuntimeForAllWorkspaces(
+    updatedWorkspaceId: string,
+    updatedSnapshot: RuntimeSnapshot,
+  ): Promise<void> {
+    this.runtimeByWorkspace.set(updatedWorkspaceId, updatedSnapshot);
+    const workspacesToRefresh = this.state.workspaces.filter((workspace) => workspace.id !== updatedWorkspaceId);
+    const snapshots = await Promise.allSettled(
+      workspacesToRefresh.map(async (workspace) => {
+        const runtime = await this.driver.runtimeSupervisor.refreshRuntime({
+          workspaceId: workspace.id,
+          path: workspace.path,
+          displayName: workspace.name,
+        });
+        return [workspace, runtime] as const;
+      }),
+    );
+    snapshots.forEach((result, index) => {
+      const workspace = workspacesToRefresh[index];
+      if (result.status === "fulfilled") {
+        this.runtimeByWorkspace.set(result.value[0].id, result.value[1]);
+        return;
+      }
+      console.warn(
+        `[pi-gui] Failed to refresh runtime for ${workspace?.path ?? "unknown workspace"} after custom provider update: ${
+          result.reason instanceof Error ? result.reason.message : String(result.reason)
+        }`,
+      );
+    });
+  }
+
+  private async refreshSessionCommandsForAllWorkspaces(): Promise<void> {
+    const results = await Promise.allSettled(
+      this.state.workspaces.map((workspace) => this.refreshSessionCommandsForWorkspace(workspace.id)),
+    );
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        return;
+      }
+      const workspace = this.state.workspaces[index];
+      console.warn(
+        `[pi-gui] Failed to refresh session commands for ${workspace?.path ?? "unknown workspace"} after custom provider update: ${
+          result.reason instanceof Error ? result.reason.message : String(result.reason)
+        }`,
+      );
     });
   }
 
@@ -790,9 +883,10 @@ export class DesktopAppStore implements AppStoreInternals {
         composerDraft: persisted.composerDraft,
         clearLastError: true,
         refreshWorktrees: true,
+        markSelectedSessionViewed: false,
         hydrateSelectedSession: false,
       });
-      this.startSelectedSessionHydration(this.selectedSessionRef());
+      this.startSelectedSessionHydration(this.selectedSessionRef(), { markViewed: false });
     } catch (error) {
       this.state = {
         ...createEmptyDesktopAppState(),
@@ -1895,7 +1989,11 @@ export class DesktopAppStore implements AppStoreInternals {
     return snapshot;
   }
 
-  private async hydrateSelectedSessionAfterSelection(sessionRef: SessionRef, selectionEpoch: number): Promise<void> {
+  private async hydrateSelectedSessionAfterSelection(
+    sessionRef: SessionRef,
+    selectionEpoch: number,
+    options: { readonly markViewed: boolean } = { markViewed: true },
+  ): Promise<void> {
     const runtimeMissing = !this.runtimeByWorkspace.has(sessionRef.workspaceId);
     const [snapshot] = await Promise.all([
       this.ensureSessionReady(sessionRef),
@@ -1914,19 +2012,24 @@ export class DesktopAppStore implements AppStoreInternals {
 
     this.clearSessionError(sessionRef);
     this.state = this.syncSelectedSessionHydrationState(this.state, sessionRef, snapshot, runtimeByWorkspace);
-    this.markSessionViewed(sessionRef);
+    if (options.markViewed) {
+      this.markSessionViewed(sessionRef);
+    }
     this.schedulePersistUiState();
     this.emit();
     this.publishSelectedTranscriptFor(sessionRef);
   }
 
-  private startSelectedSessionHydration(sessionRef: SessionRef | undefined): void {
+  private startSelectedSessionHydration(
+    sessionRef: SessionRef | undefined,
+    options: { readonly markViewed: boolean } = { markViewed: true },
+  ): void {
     if (!sessionRef) {
       return;
     }
 
     const selectionEpoch = ++this.selectionEpoch;
-    void this.hydrateSelectedSessionAfterSelection(sessionRef, selectionEpoch).catch((error: unknown) => {
+    void this.hydrateSelectedSessionAfterSelection(sessionRef, selectionEpoch, options).catch((error: unknown) => {
       void this.handleSelectedSessionHydrationError(sessionRef, selectionEpoch, error);
     });
   }

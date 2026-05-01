@@ -2243,6 +2243,13 @@
   font-weight: 560;
 }
 
+.settings-field__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .settings-select,
 .settings-search,
 .settings-text-input {

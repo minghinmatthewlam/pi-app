@@ -28,6 +28,20 @@ import { createRuntimeDependencies } from "./runtime-deps.js";
 import { createSettingsManagerWithoutNpmPackages, isGlobalNpmLookupError } from "./npm-package-fallback.js";
 import { skillSlashCommand } from "./runtime-command-utils.js";
 import type { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
+import {
+  BUILT_IN_PROVIDER_IDS,
+  CustomProviderStore,
+  type CustomProviderEntry,
+  type CustomProviderInput,
+} from "./custom-provider-store.js";
+
+export {
+  BUILT_IN_PROVIDER_IDS,
+  CUSTOM_PROVIDER_ID_PATTERN,
+  isValidHttpBaseUrl,
+  OPENAI_COMPLETIONS_API,
+} from "./custom-provider-store.js";
+export type { CustomProviderEntry, CustomProviderInput, CustomProviderModelInput } from "./custom-provider-store.js";
 
 interface ModelSettingsSnapshot {
   readonly defaultProvider?: string;
@@ -52,6 +66,7 @@ export interface RuntimeSupervisorOptions {
   readonly agentDir?: string;
   readonly authStorage?: AuthStorage;
   readonly modelRegistry?: ModelRegistry;
+  readonly customProviderStore?: CustomProviderStore;
 }
 
 type ResourceScope = "user" | "project";
@@ -61,6 +76,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
   private readonly agentDir: string;
   private readonly authStorage: AuthStorage;
   private readonly modelRegistry: ModelRegistry;
+  private readonly customProviderStore: CustomProviderStore;
   private readonly contexts = new Map<string, RuntimeContext>();
 
   constructor(options: RuntimeSupervisorOptions = {}) {
@@ -68,6 +84,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     this.agentDir = deps.agentDir;
     this.authStorage = deps.authStorage;
     this.modelRegistry = deps.modelRegistry;
+    this.customProviderStore = deps.customProviderStore;
   }
 
   async getRuntimeSnapshot(workspace: WorkspaceRef): Promise<RuntimeSnapshot> {
@@ -115,6 +132,33 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     this.modelRegistry.refresh();
     await context.resourceLoader.reload();
     await this.autoEnableModelsForAuthenticatedProviders(context, [providerId]);
+    return this.buildSnapshot(context);
+  }
+
+  async listCustomProviders(): Promise<readonly CustomProviderEntry[]> {
+    return this.customProviderStore.list();
+  }
+
+  async setCustomProvider(workspace: WorkspaceRef, input: CustomProviderInput): Promise<RuntimeSnapshot> {
+    const oauthProviderIds = new Set(this.authStorage.getOAuthProviders().map((provider) => provider.id));
+    if (BUILT_IN_PROVIDER_IDS.has(input.providerId) || oauthProviderIds.has(input.providerId)) {
+      throw new Error(
+        `Provider ID "${input.providerId}" conflicts with a built-in provider. Pick a unique ID.`,
+      );
+    }
+    const context = await this.ensureContext(workspace);
+    await this.customProviderStore.set(input);
+    this.modelRegistry.refresh();
+    await context.resourceLoader.reload();
+    await this.autoEnableModelsForAuthenticatedProviders(context, [input.providerId]);
+    return this.buildSnapshot(context);
+  }
+
+  async deleteCustomProvider(workspace: WorkspaceRef, providerId: string): Promise<RuntimeSnapshot> {
+    const context = await this.ensureContext(workspace);
+    await this.customProviderStore.delete(providerId);
+    this.modelRegistry.refresh();
+    await context.resourceLoader.reload();
     return this.buildSnapshot(context);
   }
 
@@ -406,6 +450,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     const oauthProviders = new Map(this.authStorage.getOAuthProviders().map((provider) => [provider.id, provider]));
     const providerIds = new Set<string>([
       ...this.modelRegistry.getAll().map((model) => model.provider),
+      ...getModelConfigProviderIds(this.modelRegistry),
       ...oauthProviders.keys(),
       ...this.authStorage.list(),
     ]);
@@ -416,7 +461,8 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
         const auth = this.authStorage.get(providerId);
         const oauthProvider = oauthProviders.get(providerId);
         const apiKeySetupSupported = providerSupportsDesktopApiKeySetup(providerId);
-        const hasAuth = this.authStorage.hasAuth(providerId);
+        const hasModelConfigAuth = providerHasModelConfigAuth(this.modelRegistry, providerId);
+        const hasAuth = this.authStorage.hasAuth(providerId) || hasModelConfigAuth;
         return {
           id: providerId,
           name: oauthProvider?.name ?? providerId,
@@ -426,7 +472,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
             auth,
             hasAuth,
             apiKeySetupSupported,
-            providerHasModelConfigApiKey(this.modelRegistry, providerId),
+            hasModelConfigAuth,
           ),
           oauthSupported: Boolean(oauthProvider),
           apiKeySetupSupported,
@@ -817,7 +863,7 @@ function inferProviderAuthSource(
   auth: { readonly type: "oauth" | "api_key" } | undefined,
   hasAuth: boolean,
   apiKeySetupSupported: boolean,
-  hasModelConfigApiKey: boolean,
+  hasModelConfigAuth: boolean,
 ): "none" | "oauth" | "auth_file" | "env" | "external" {
   if (auth?.type === "oauth") {
     return "oauth";
@@ -828,17 +874,37 @@ function inferProviderAuthSource(
   if (!hasAuth) {
     return "none";
   }
-  if (hasModelConfigApiKey) {
+  if (hasModelConfigAuth) {
     return "external";
   }
   return apiKeySetupSupported ? "env" : "external";
 }
 
-function providerHasModelConfigApiKey(modelRegistry: ModelRegistry, providerId: string): boolean {
-  const customProviderApiKeys = (
-    modelRegistry as unknown as { customProviderApiKeys?: ReadonlyMap<string, unknown> }
-  ).customProviderApiKeys;
-  return customProviderApiKeys?.has(providerId) ?? false;
+type ModelProviderRequestConfig = {
+  readonly apiKey?: unknown;
+  readonly headers?: unknown;
+  readonly authHeader?: unknown;
+};
+
+function getModelProviderRequestConfigs(
+  modelRegistry: ModelRegistry,
+): ReadonlyMap<string, ModelProviderRequestConfig> | undefined {
+  return (
+    modelRegistry as unknown as {
+      providerRequestConfigs?: ReadonlyMap<string, ModelProviderRequestConfig>;
+    }
+  ).providerRequestConfigs;
+}
+
+function getModelConfigProviderIds(modelRegistry: ModelRegistry): readonly string[] {
+  return [...(getModelProviderRequestConfigs(modelRegistry)?.keys() ?? [])];
+}
+
+function providerHasModelConfigAuth(modelRegistry: ModelRegistry, providerId: string): boolean {
+  const config = getModelProviderRequestConfigs(modelRegistry)?.get(providerId);
+  return Boolean(
+    config && (config.apiKey !== undefined || config.headers !== undefined || config.authHeader !== undefined),
+  );
 }
 
 function toRuntimeSourceInfo(path: string, metadata: PathMetadata): RuntimeSourceInfo {

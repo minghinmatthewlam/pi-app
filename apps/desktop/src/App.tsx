@@ -23,6 +23,7 @@ import {
   desktopCommands,
   getDesktopCommandFromShortcut,
   getDesktopShortcutLabel,
+  type CustomProviderConfig,
   type DesktopNotificationPermissionStatus,
   type PiDesktopCommand,
 } from "./ipc";
@@ -201,6 +202,7 @@ export default function App() {
   const [openTerminalSessionKeys, setOpenTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [terminalHeight, setTerminalHeight] = useState(340);
+  const previousSelectedSessionKeyRef = useRef("");
   const [diffFileRequest, setDiffFileRequest] = useState<DiffPanelFileRequest | null>(null);
   const [timelinePaneMountVersion, setTimelinePaneMountVersion] = useState(0);
   const [disableTimelineVirtualization, setDisableTimelineVirtualization] = useState(true);
@@ -398,6 +400,30 @@ export default function App() {
       setTakeoverTerminalSessionKeys(new Set());
     }
   }, [snapshot]);
+  useEffect(() => {
+    const previousSessionKey = previousSelectedSessionKeyRef.current;
+    previousSelectedSessionKeyRef.current = selectedSessionKey;
+    if (!previousSessionKey || previousSessionKey === selectedSessionKey) {
+      return;
+    }
+
+    setOpenTerminalSessionKeys((current) => {
+      if (!current.has(previousSessionKey)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(previousSessionKey);
+      return next;
+    });
+    setTakeoverTerminalSessionKeys((current) => {
+      if (!current.has(previousSessionKey)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(previousSessionKey);
+      return next;
+    });
+  }, [selectedSessionKey]);
   const selectedExtensionDock = useMemo(() => buildExtensionDockModel(selectedExtensionUi), [selectedExtensionUi]);
   const displayedSessionTitle = selectedExtensionUi?.title ?? selectedSession?.title ?? "";
   const activeExtensionDialog = selectedExtensionUi?.pendingDialogs[0];
@@ -1621,6 +1647,26 @@ export default function App() {
     return state.lastError;
   };
 
+  const handleSaveCustomProvider = async (config: CustomProviderConfig): Promise<string | undefined> => {
+    if (!api || !settingsWorkspace) {
+      return "Select a workspace first.";
+    }
+    const state = await updateSnapshot(api, setSnapshot, () =>
+      api.setCustomProvider(settingsWorkspace.id, config),
+    );
+    return state.lastError;
+  };
+
+  const handleDeleteCustomProvider = async (providerId: string): Promise<string | undefined> => {
+    if (!api || !settingsWorkspace) {
+      return "Select a workspace first.";
+    }
+    const state = await updateSnapshot(api, setSnapshot, () =>
+      api.deleteCustomProvider(settingsWorkspace.id, providerId),
+    );
+    return state.lastError;
+  };
+
   const handleToggleSkill = (filePath: string, enabled: boolean) => {
     if (!skillsWorkspace) {
       return;
@@ -1916,6 +1962,8 @@ export default function App() {
           onLogoutProvider={handleLogoutProvider}
           onSetProviderApiKey={handleSetProviderApiKey}
           onRemoveProviderApiKey={handleRemoveProviderApiKey}
+          onSaveCustomProvider={handleSaveCustomProvider}
+          onDeleteCustomProvider={handleDeleteCustomProvider}
           onSetModelSettingsScopeMode={handleSetModelSettingsScopeMode}
           onSetDefaultModel={handleSetDefaultModel}
           onSetNotificationPreferences={handleSetNotificationPreferences}
