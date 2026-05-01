@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
+  BUILT_IN_PROVIDER_IDS,
   CUSTOM_PROVIDER_ID_PATTERN,
   CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
   isValidHttpBaseUrl,
@@ -13,6 +14,7 @@ import {
 
 export type { CustomProviderEntry, CustomProviderInput, CustomProviderModelInput } from "./custom-provider-types.js";
 export {
+  BUILT_IN_PROVIDER_IDS,
   CUSTOM_PROVIDER_ID_PATTERN,
   CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
   isValidHttpBaseUrl,
@@ -38,7 +40,7 @@ export class CustomProviderStore {
       const data = await readModelsJson(this.modelsJsonPath);
       const providers = ensureProvidersRecord(data);
       const existing = providers[input.providerId];
-      if (existing && typeof existing === "object" && !isPiGuiCustomProviderConfig(existing as Record<string, unknown>)) {
+      if (existing && typeof existing === "object" && !isPiGuiCustomProviderConfig(input.providerId, existing as Record<string, unknown>)) {
         throw new Error(
           `Provider ID "${input.providerId}" already exists in models.json and is not managed by pi-gui.`,
         );
@@ -56,7 +58,7 @@ export class CustomProviderStore {
         return false;
       }
       const existing = (providers as Record<string, unknown>)[providerId];
-      if (!existing || typeof existing !== "object" || !isPiGuiCustomProviderConfig(existing as Record<string, unknown>)) {
+      if (!existing || typeof existing !== "object" || !isPiGuiCustomProviderConfig(providerId, existing as Record<string, unknown>)) {
         return false;
       }
       delete (providers as Record<string, unknown>)[providerId];
@@ -122,7 +124,7 @@ function readCustomProviders(data: Record<string, unknown>): readonly CustomProv
       continue;
     }
     const config = rawConfig as Record<string, unknown>;
-    if (!isPiGuiCustomProviderConfig(config)) {
+    if (!isPiGuiCustomProviderConfig(providerId, config)) {
       continue;
     }
     const baseUrl = typeof config.baseUrl === "string" ? config.baseUrl : undefined;
@@ -160,8 +162,19 @@ function readCustomProviders(data: Record<string, unknown>): readonly CustomProv
   return entries;
 }
 
-function isPiGuiCustomProviderConfig(config: Record<string, unknown>): boolean {
-  return config[PI_GUI_CUSTOM_PROVIDER_MARKER] === true;
+function isPiGuiCustomProviderConfig(providerId: string, config: Record<string, unknown>): boolean {
+  if (config[PI_GUI_CUSTOM_PROVIDER_MARKER] === true) {
+    return true;
+  }
+  if (BUILT_IN_PROVIDER_IDS.has(providerId)) {
+    return false;
+  }
+  return (
+    config.api === OPENAI_COMPLETIONS_API &&
+    typeof config.baseUrl === "string" &&
+    Array.isArray(config.models) &&
+    config.models.length > 0
+  );
 }
 
 function ensureProvidersRecord(data: Record<string, unknown>): Record<string, unknown> {

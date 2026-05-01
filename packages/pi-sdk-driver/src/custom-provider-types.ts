@@ -22,6 +22,33 @@ export const OPENAI_COMPLETIONS_API = "openai-completions";
 
 export const CUSTOM_PROVIDER_PLACEHOLDER_API_KEY = "unused";
 export const PI_GUI_CUSTOM_PROVIDER_MARKER = "piGuiCustomEndpoint";
+export const BUILT_IN_PROVIDER_IDS: ReadonlySet<string> = new Set([
+  "amazon-bedrock",
+  "anthropic",
+  "azure-openai-responses",
+  "cerebras",
+  "deepseek",
+  "fireworks",
+  "github-copilot",
+  "google",
+  "google-antigravity",
+  "google-gemini-cli",
+  "google-vertex",
+  "groq",
+  "huggingface",
+  "kimi-coding",
+  "minimax",
+  "minimax-cn",
+  "mistral",
+  "openai",
+  "openai-codex",
+  "opencode",
+  "opencode-go",
+  "openrouter",
+  "vercel-ai-gateway",
+  "xai",
+  "zai",
+]);
 
 export function isValidHttpBaseUrl(value: string): boolean {
   try {

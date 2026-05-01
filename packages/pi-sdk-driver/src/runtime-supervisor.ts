@@ -28,9 +28,15 @@ import { createRuntimeDependencies } from "./runtime-deps.js";
 import { createSettingsManagerWithoutNpmPackages, isGlobalNpmLookupError } from "./npm-package-fallback.js";
 import { skillSlashCommand } from "./runtime-command-utils.js";
 import type { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
-import { CustomProviderStore, type CustomProviderEntry, type CustomProviderInput } from "./custom-provider-store.js";
+import {
+  BUILT_IN_PROVIDER_IDS,
+  CustomProviderStore,
+  type CustomProviderEntry,
+  type CustomProviderInput,
+} from "./custom-provider-store.js";
 
 export {
+  BUILT_IN_PROVIDER_IDS,
   CUSTOM_PROVIDER_ID_PATTERN,
   isValidHttpBaseUrl,
   OPENAI_COMPLETIONS_API,
@@ -135,7 +141,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
 
   async setCustomProvider(workspace: WorkspaceRef, input: CustomProviderInput): Promise<RuntimeSnapshot> {
     const oauthProviderIds = new Set(this.authStorage.getOAuthProviders().map((provider) => provider.id));
-    if (providerSupportsDesktopApiKeySetup(input.providerId) || oauthProviderIds.has(input.providerId)) {
+    if (BUILT_IN_PROVIDER_IDS.has(input.providerId) || oauthProviderIds.has(input.providerId)) {
       throw new Error(
         `Provider ID "${input.providerId}" conflicts with a built-in provider. Pick a unique ID.`,
       );

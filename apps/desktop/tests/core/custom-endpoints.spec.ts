@@ -1,12 +1,15 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   desktopShortcut,
+  getDesktopState,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  type PiAppWindow,
   seedAgentDir,
+  waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
 async function readModelsJson(agentDir: string): Promise<Record<string, unknown>> {
@@ -26,17 +29,19 @@ test("settings lets the user add, edit, and delete an OpenAI-compatible custom e
   const userDataDir = await makeUserDataDir();
   const agentDir = join(userDataDir, "agent");
   const workspacePath = await makeWorkspace("custom-endpoints-add-workspace");
+  const otherWorkspacePath = await makeWorkspace("custom-endpoints-other-workspace");
   await seedAgentDir(agentDir, { enabledModels: [] });
 
   const harness = await launchDesktop(userDataDir, {
     agentDir,
-    initialWorkspaces: [workspacePath],
+    initialWorkspaces: [workspacePath, otherWorkspacePath],
     scrubProviderEnv: true,
     testMode: "background",
   });
 
   try {
     const window = await harness.firstWindow();
+    const otherWorkspace = await waitForWorkspaceByPath(window, otherWorkspacePath);
     await openProvidersSettings(window);
 
     const customEndpoints = window.locator(".settings-section", {
@@ -71,6 +76,13 @@ test("settings lets the user add, edit, and delete an OpenAI-compatible custom e
       piGuiCustomEndpoint: true,
       models: [{ id: "llama3.1" }],
     });
+    await expect.poll(async () => {
+      const state = await getDesktopState(window);
+      return (
+        state.runtimeByWorkspace[otherWorkspace.id]?.providers.some((provider) => provider.id === "ollama-local")
+        ?? false
+      );
+    }).toBe(true);
 
     // Edit flow: change base URL.
     await entryRow.getByRole("button", { name: "Edit", exact: true }).click();
@@ -96,6 +108,116 @@ test("settings lets the user add, edit, and delete an OpenAI-compatible custom e
     const afterDelete = await readModelsJson(agentDir);
     const afterDeleteProviders = (afterDelete.providers as Record<string, unknown>) ?? {};
     expect(afterDeleteProviders["ollama-local"]).toBeUndefined();
+    await expect.poll(async () => {
+      const state = await getDesktopState(window);
+      return (
+        state.runtimeByWorkspace[otherWorkspace.id]?.providers.some((provider) => provider.id === "ollama-local")
+        ?? false
+      );
+    }).toBe(false);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("custom endpoints keep legacy managed entries separate from built-in overrides", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("custom-endpoints-ownership-workspace");
+  await seedAgentDir(agentDir, { enabledModels: [] });
+  await writeFile(
+    join(agentDir, "models.json"),
+    `${JSON.stringify(
+      {
+        providers: {
+          openai: {
+            baseUrl: "https://proxy.example.test/v1",
+            api: "openai-completions",
+            apiKey: "test-openai-key",
+            models: [{ id: "proxy-model" }],
+          },
+          deepseek: {
+            baseUrl: "https://deepseek-proxy.example.test/v1",
+            api: "openai-completions",
+            apiKey: "test-deepseek-key",
+            models: [{ id: "deepseek-chat" }],
+          },
+          "legacy-local": {
+            baseUrl: "http://localhost:11434/v1",
+            api: "openai-completions",
+            apiKey: "unused",
+            models: [{ id: "llama3.1" }],
+          },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    scrubProviderEnv: true,
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    const workspace = await waitForWorkspaceByPath(window, workspacePath);
+    await openProvidersSettings(window);
+
+    const customEndpoints = window.locator(".settings-section", {
+      has: window.locator(".settings-section__title", { hasText: "Custom endpoints" }),
+    });
+    await expect(customEndpoints).toContainText("legacy-local");
+    await expect(
+      customEndpoints.locator(".settings-row", {
+        has: window.locator(".settings-row__title", { hasText: /^openai$/ }),
+      }),
+    ).toHaveCount(0);
+    await expect(
+      customEndpoints.locator(".settings-row", {
+        has: window.locator(".settings-row__title", { hasText: /^deepseek$/ }),
+      }),
+    ).toHaveCount(0);
+
+    const blockedState = await window.evaluate(async ({ workspaceId }) => {
+      const app = (window as PiAppWindow).piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      return app.setCustomProvider(workspaceId, {
+        providerId: "openai",
+        baseUrl: "http://localhost:11434/v1",
+        models: [{ id: "should-not-save" }],
+      });
+    }, { workspaceId: workspace.id });
+    expect(blockedState.lastError).toContain("conflicts with a built-in provider");
+
+    await window.evaluate(async ({ workspaceId }) => {
+      const app = (window as PiAppWindow).piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      await app.deleteCustomProvider(workspaceId, "openai");
+    }, { workspaceId: workspace.id });
+    const afterBlockedDelete = await readModelsJson(agentDir);
+    expect((afterBlockedDelete.providers as Record<string, unknown>).openai).toBeDefined();
+    expect((afterBlockedDelete.providers as Record<string, unknown>).deepseek).toBeDefined();
+
+    const legacyRow = customEndpoints.locator(".settings-row", {
+      has: window.locator(".settings-row__title", { hasText: /^legacy-local$/ }),
+    });
+    await legacyRow.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(customEndpoints).toContainText("No custom endpoints yet.");
+
+    const afterLegacyDelete = await readModelsJson(agentDir);
+    const providers = afterLegacyDelete.providers as Record<string, unknown>;
+    expect(providers.openai).toBeDefined();
+    expect(providers["legacy-local"]).toBeUndefined();
   } finally {
     await harness.close();
   }
